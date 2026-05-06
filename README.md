@@ -177,6 +177,255 @@ The target outcome is that engineers are notified of resolutions, not incidents.
 
 -----
 
+# InfraMap
+
+Real-time infrastructure topology visualisation and operational control plane built with Next.js.
+
+-----
+
+## Prerequisites
+
+- Node.js 18+
+- npm or pnpm
+
+-----
+
+## Getting Started
+
+Clone the repository:
+
+```bash
+git clone https://github.com/your-org/inframap.git
+cd inframap
+```
+
+Install dependencies:
+
+```bash
+npm install
+# or
+pnpm install
+```
+
+Start the development server:
+
+```bash
+npm run dev
+# or
+pnpm dev
+```
+
+Open <http://localhost:3000>.
+
+-----
+
+## Environment Variables
+
+Create a `.env.local` file in the root of the project:
+
+```env
+# Email — required for alert notifications
+RESEND_API_KEY=
+
+# Backend service URL — required for live infrastructure data
+NEXT_PUBLIC_BACKEND_URL=
+
+# Internal identifier distinguishing frontend from backend in shared logging or tracing
+NEXT_PUBLIC_SERVICE_NAME=inframap-frontend
+```
+
+All variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. Variables without the prefix are server-side only.
+
+-----
+
+## Project Structure
+
+```
+inframap/
+├── app/                  # Next.js app router — pages and layouts
+├── hooks/                # Custom React hooks
+│   ├── useTopology       # WebSocket connection and live node/edge state
+│   ├── useMetrics        # Per-node metric subscriptions
+│   └── useProvisioning   # Provisioning and chaos control actions
+├── lanes/                # Layout components and route-level structure
+├── styles/               # Global styles and design tokens
+├── map/                  # Topology map
+│   ├── InfraMap          # Root map component
+│   ├── Node              # Individual node rendering — health state, weight arc, animations
+│   ├── Edge              # Traffic edge rendering — throughput scaling, flow animation
+│   └── Projection        # Lat/lng to SVG coordinate mapping
+└── content/              # Panels and control surfaces
+    ├── NodePanel         # Node detail view — metrics, traffic, uptime
+    ├── ProvisionPanel    # Spawn, shard, and replicate controls
+    ├── ChaosPanel        # Chaos layer controls and red team session management
+    ├── DeployPanel       # Deployment overlay and rollback controls
+    └── AlertPanel        # Alert feed and trajectory warnings
+```
+
+-----
+
+## Map
+
+The topology map renders infrastructure nodes at their actual geographic coordinates using an equirectangular projection. Nodes are typed, health-state coloured, and carry a weight arc showing live load.
+
+### Node Types
+
+|Symbol|Type         |Description                        |
+|------|-------------|-----------------------------------|
+|⬡     |Redis        |Cache and pub/sub instances        |
+|◈     |Load Balancer|Internal LB and host balancer nodes|
+|▣     |App          |Application service instances      |
+|⬟     |Database     |Postgres primary and replica nodes |
+
+### Node Health States
+
+|State     |Description                                |
+|----------|-------------------------------------------|
+|`healthy` |Operating within normal parameters         |
+|`warning` |Weight between 75–90%                      |
+|`critical`|Weight above 90%                           |
+|`spawning`|Instance coming online, not yet at capacity|
+|`draining`|Instance being taken out of rotation       |
+
+### Layer Toggles
+
+Each node type can be shown or hidden independently. Toggling a layer also hides traffic edges where both endpoints are in the hidden layer.
+
+-----
+
+## Hooks
+
+### `useTopology`
+
+Manages the WebSocket connection to the Go backend and maintains live node and edge state. Handles reconnection on drop with exponential backoff. Returns:
+
+```ts
+{
+  nodes: InfraNode[]
+  edges: TrafficEdge[]
+  connected: boolean
+}
+```
+
+### `useMetrics`
+
+Subscribes to per-node metric updates. Accepts a node ID and returns live p95, p99, memory, connection count, and `INSTANCE.WEIGHT` score.
+
+### `useProvisioning`
+
+Exposes provisioning and chaos control actions — spawn node, shard dummy Redis, replicate dummy DB, kill node, introduce latency. All actions are sent to the backend via authenticated internal endpoints and logged to the provisioning history.
+
+-----
+
+## Node Metrics
+
+Each node exposes the following metrics via the backend WebSocket feed:
+
+|Metric          |Type       |Description                                        |
+|----------------|-----------|---------------------------------------------------|
+|`weight`        |`float 0–1`|Composite load score — connections, memory, latency|
+|`connections`   |`int`      |Current active connections                         |
+|`maxConnections`|`int`      |Configured connection ceiling                      |
+|`memory`        |`float 0–1`|Memory utilisation                                 |
+|`p95`           |`ms`       |95th percentile request latency                    |
+|`p99`           |`ms`       |99th percentile request latency                    |
+|`status`        |`string`   |Current health state                               |
+|`spawnedAt`     |`timestamp`|Instance start time                                |
+
+-----
+
+## Chaos Layer
+
+The chaos layer is a separate topology environment running entirely against dummy infrastructure. Production is never a target.
+
+Dummy environments are provisioned on demand:
+
+- **Dummy Redis shard** — Redis instance pre-loaded with synthetic data mirroring production key structure
+- **Dummy DB shard** — Postgres replica populated with synthetic data
+- **Shadow prod** — full synthetic replica of the current production topology
+
+Chaos controls available per node:
+
+- Introduce latency — adds a configurable artificial delay to all commands on that node
+- Kill node — sends SIGKILL, triggers failover and replica promotion
+- Saturate connections — fills the connection pool to ceiling
+- Invalidate cache — clears keys to trigger cache miss path
+
+Red team mode locks the session to the chaos environment, records every action with a timestamp and actor, and generates a session report on completion.
+
+-----
+
+## Alerting
+
+Alerts are trajectory-based. A warning fires when a node’s weight trend will breach the configured ceiling within the lookahead window — before degradation starts, not after.
+
+Alert targets are configured per deployment:
+
+- Native InfraMap alert feed
+- Grafana
+- AWS CloudWatch
+- AWS SNS
+
+Alert types:
+
+|Type               |Trigger                                                |
+|-------------------|-------------------------------------------------------|
+|`weight_trajectory`|Node weight trending to ceiling within lookahead window|
+|`weight_breach`    |Node weight exceeded configured threshold              |
+|`node_critical`    |Node entered critical state                            |
+|`spawn_complete`   |New instance came online                               |
+|`chaos_detected`   |Anomaly detected in chaos layer session                |
+
+-----
+
+## Deployments
+
+Active deployments are rendered as an overlay on the topology map. The deployment panel shows:
+
+- Which nodes are receiving the deploy and in what order
+- Current deploy status per node
+- Rollback controls per deployment
+- Deployment history — timestamped and correlated with the metric timeline
+
+-----
+
+## Backend
+
+InfraMap connects to a Go backend service that aggregates infrastructure state and streams it over WebSocket. The backend is maintained in a separate repository.
+
+The frontend expects the backend to expose:
+
+- `WS /ws/topology` — live node and edge state stream
+- `POST /provision/node` — spawn a new node
+- `POST /provision/redis/shard` — create a dummy Redis shard
+- `POST /provision/db/shard` — create a dummy DB shard
+- `POST /chaos/latency` — introduce latency on a node
+- `POST /chaos/kill` — kill a node
+- `POST /chaos/saturate` — saturate connections on a node
+- `POST /chaos/invalidate` — invalidate cache on a node
+
+All endpoints require authentication via shared secret header.
+
+-----
+
+## Contributing
+
+1. Fork the repository
+1. Create a branch from `main` — `git checkout -b your-feature`
+1. Make your changes
+1. Open a pull request against `main` with a clear description of what changed and why
+
+There are no contribution templates yet. Just be clear about what the change does.
+
+-----
+
+## License
+
+MIT
+
+
+
+
 ## License
 
 Apache 2.0
