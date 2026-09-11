@@ -1,5 +1,5 @@
-import { TYPE_MAP } from "../types/type";
-import { weightColor, statusColor } from "../types/styles";
+import { TYPE_MAP } from "@/app/components/types/type";
+import { weightColor, statusColor } from "@/app/components/types/styles";
 
 type NodeListProps = {
   nodes: any[];

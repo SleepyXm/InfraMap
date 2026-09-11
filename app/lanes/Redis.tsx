@@ -1,5 +1,5 @@
-import useRedisNode from "../hooks/RedisNode";
-import { MiniBar, MetricPill } from "../styles/styles";
+import useRedisNode from "@/app/components/hooks/RedisNode";
+import { MiniBar, MetricPill } from "@/app/UI/styles/styles";
 
 export default function RedisPanel({ node }: { node: any }) {
   const { data, live } = useRedisNode(node.id, node.redis);

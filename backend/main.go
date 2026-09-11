@@ -1,0 +1,63 @@
+package main
+
+import (
+	"database/sql"
+	"log"
+	"time"
+
+	"InfraMap/routes"
+	"InfraMap/utils"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+var db *sql.DB
+
+func initDB() {
+	var err error
+	db, err = sql.Open("pgx", utils.Cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("Failed to open DB:", err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatal("DB not reachable:", err)
+	}
+
+	log.Println("DB connected")
+
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(100)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+}
+
+func main() {
+	utils.Load()
+	utils.InitResend()
+	utils.InitRedis()
+	initDB()
+
+	allowedOrigins := []string{utils.Cfg.DevServer}
+	if utils.Cfg.FrontendProd != "" {
+		allowedOrigins = append(allowedOrigins, utils.Cfg.FrontendProd)
+	}
+
+	router := gin.Default()
+	if err := router.SetTrustedProxies(nil); err != nil {
+		log.Fatal(err)
+	}
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     allowedOrigins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	}))
+
+	api := router.Group("/api")
+	routes.RegisterAuthRoutes(api.Group("/auth"), db)
+	router.Run(":8000")
+}

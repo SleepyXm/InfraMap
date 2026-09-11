@@ -1,0 +1,4 @@
+.grid { --grid-x: 50%; --grid-y: 50%; position: relative; min-height: 100vh; isolation: isolate; background-color: var(--background); background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px); background-size: 52px 52px; }
+.grid > * { position: relative; z-index: 1; }.grid::before { position: absolute; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(var(--grid-hover) 1px, transparent 1px), linear-gradient(90deg, var(--grid-hover) 1px, transparent 1px); background-size: 52px 52px; content: ""; mask-image: radial-gradient(circle 250px at var(--grid-x) var(--grid-y), black 0%, transparent 72%); opacity: 0; transition: opacity 180ms ease; -webkit-mask-image: radial-gradient(circle 250px at var(--grid-x) var(--grid-y), black 0%, transparent 72%); }
+.grid:hover::before { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .grid::before { transition: none; } }

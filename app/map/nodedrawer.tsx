@@ -1,6 +1,6 @@
-import { statusColor, nodeIcon, throughputColor } from "../types/styles";
-import { MiniBar } from "../styles/styles";
-import RedisPanel from "../lanes/Redis";
+import { statusColor, nodeIcon, throughputColor } from "@/app/components/types/styles";
+import { MiniBar } from "@/app/UI/styles/styles";
+import RedisPanel from "@/app/lanes/Redis";
 
 function formatUptime(spawnedAt: number) {
   const ms = Date.now() - spawnedAt;

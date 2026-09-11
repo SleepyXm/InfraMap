@@ -1,0 +1,71 @@
+package structs
+
+import (
+	"fmt"
+	"strings"
+	"time"
+)
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ModelSettings struct {
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
+	MaxTokens        *int     `json:"max_tokens,omitempty"`
+	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
+}
+
+type ChatRequest struct {
+	ModelID         string `json:"modelId" binding:"required"`
+	HFTokenName     string `json:"hfTokenName"`
+	CustomisationID string `json:"customisationId"`
+	// Conversation contains only messages created by the current interaction.
+	// Stored history is loaded and bounded by the backend.
+	Conversation []Message     `json:"conversation" binding:"required"`
+	Settings     ModelSettings `json:"settings"`
+}
+
+type CreateConversationRequest struct {
+	Title    string `json:"title" binding:"required"`
+	LLMModel string `json:"llm_model" binding:"required"`
+}
+
+type UpdateConversationRequest struct {
+	Title string `json:"title" binding:"required"`
+}
+
+type FavoriteRequest struct {
+	HFID string `json:"hf_id" binding:"required"`
+}
+
+type StoredMessage struct {
+	ID        string         `json:"id"`
+	Message   map[string]any `json:"message"`
+	Role      string         `json:"role"`
+	CreatedAt FlexTime       `json:"created_at"`
+	Metadata  map[string]any `json:"metadata"`
+}
+
+type FlexTime struct {
+	time.Time
+}
+
+func (ft *FlexTime) UnmarshalJSON(data []byte) error {
+	s := strings.Trim(string(data), `"`)
+	formats := []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			ft.Time = t
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot parse time: %s", s)
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MOCK_LOGS } from "../content/mockdata";
+import { MOCK_LOGS } from "@/app/content/mockdata";
 
 export default function LogsPanel() {
   const levelColors = { ERROR: "#ff3b5c", WARN: "#f5a623", INFO: "#00e5a0", DEBUG: "#4a6080" };

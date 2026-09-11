@@ -1,4 +1,4 @@
-import { MOCK_DEPLOYMENTS } from "../content/mockdata";
+import { MOCK_DEPLOYMENTS } from "@/app/content/mockdata";
 
 export default function DeploymentsPanel() {
   const statusColors = { success: "#00e5a0", running: "#4fc3f7", failed: "#ff3b5c" };

@@ -1,8 +1,8 @@
 import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { InfraNode, TrafficEdge } from "@/types/infra";
-import { statusColor, weightColor, throughputColor, nodeIcon } from "../types/styles";
-import { useWorldMap } from "../hooks/WorldMap";
+import { statusColor, weightColor, throughputColor, nodeIcon } from "@/app/components/types/styles";
+import { useWorldMap } from ".@/app/components/hooks/WorldMap";
 
 type Props = {
   nodes: InfraNode[];
