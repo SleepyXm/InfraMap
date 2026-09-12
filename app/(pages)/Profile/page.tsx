@@ -4,14 +4,13 @@ import { useState } from "react";
 import {
   beginOAuth,
   logout,
-  OAuthProvider,
-  User,
 } from "@/app/components/handlers/auth";
 import { useUser } from "@/app/components/provider/UserProvider";
+import type { OAuthIdentityProvider, User } from "@/app/components/types/users";
 import styles from "@/app/UI/Profile.module.css";
 
 const tabs = ["Account", "Connections", "Security"] as const;
-const providers: { id: OAuthProvider; label: string; detail: string }[] = [
+const providers: { id: OAuthIdentityProvider; label: string; detail: string }[] = [
   {
     id: "github",
     label: "GitHub",
@@ -21,11 +20,6 @@ const providers: { id: OAuthProvider; label: string; detail: string }[] = [
     id: "google",
     label: "Google",
     detail: "Google Cloud identity and project context",
-  },
-  {
-    id: "aws",
-    label: "AWS",
-    detail: "AWS Cognito or configured OIDC identity",
   },
 ];
 
@@ -50,7 +44,7 @@ export default function ProfilePage() {
         <header className={styles.header}>
           <div>
             <p className={styles.eyebrow}>InfraMap / profile</p>
-            <h1>Workspace settings</h1>
+            <h1>Profile settings</h1>
           </div>
           <div className={styles.user}>
             <span className={styles.avatar}>

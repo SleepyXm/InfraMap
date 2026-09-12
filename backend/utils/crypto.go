@@ -12,15 +12,22 @@ import (
 )
 
 func getKey() ([]byte, error) {
-	keyHex := os.Getenv("ENCRYPTION_KEY")
-	if keyHex == "" {
+	value := os.Getenv("ENCRYPTION_KEY")
+	if value == "" {
 		return nil, errors.New("ENCRYPTION_KEY not set")
 	}
-	key, err := hex.DecodeString(keyHex)
-	if err != nil || len(key) != 32 {
-		return nil, errors.New("ENCRYPTION_KEY must be 64 hex chars (32 bytes)")
+
+	if key, err := hex.DecodeString(value); err == nil && len(key) == 32 {
+		return key, nil
 	}
-	return key, nil
+	if key, err := base64.StdEncoding.DecodeString(value); err == nil && len(key) == 32 {
+		return key, nil
+	}
+	if key, err := base64.RawStdEncoding.DecodeString(value); err == nil && len(key) == 32 {
+		return key, nil
+	}
+
+	return nil, errors.New("ENCRYPTION_KEY must encode exactly 32 bytes as hexadecimal or Base64")
 }
 
 func Encrypt(plaintext string) (string, error) {

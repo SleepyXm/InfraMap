@@ -82,6 +82,8 @@ func GetConnections(db *sql.DB) gin.HandlerFunc {
 					return
 				}
 			}
+			connection.Category = connectionCategory(connection.Provider)
+			connection.Status = structs.ConnectionStatusActive
 
 			connections = append(connections, connection)
 		}
@@ -165,6 +167,8 @@ func GetConnection(db *sql.DB) gin.HandlerFunc {
 				return
 			}
 		}
+		connection.Category = connectionCategory(connection.Provider)
+		connection.Status = structs.ConnectionStatusActive
 
 		c.JSON(http.StatusOK, gin.H{
 			"connection": connection,
@@ -258,10 +262,29 @@ func CreateConnection(db *sql.DB) gin.HandlerFunc {
 		}
 
 		connection.Metadata = req.Metadata
+		connection.Category = req.Category
+		connection.Status = structs.ConnectionStatusActive
 
 		c.JSON(http.StatusCreated, gin.H{
 			"connection": connection,
 		})
+	}
+}
+
+func connectionCategory(provider string) structs.ConnectionCategory {
+	switch provider {
+	case "github", "gitlab", "bitbucket":
+		return structs.ConnectionCategorySource
+	case "aws", "gcp", "azure", "cloudflare", "digitalocean", "hetzner":
+		return structs.ConnectionCategoryCloud
+	case "vercel", "railway", "render", "netlify":
+		return structs.ConnectionCategoryDeployment
+	case "supabase", "neon", "planetscale":
+		return structs.ConnectionCategoryData
+	case "kubernetes", "docker", "ssh":
+		return structs.ConnectionCategoryServer
+	default:
+		return structs.ConnectionCategoryAccount
 	}
 }
 

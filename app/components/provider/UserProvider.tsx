@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
-import { validateUser, User } from "@/app/components/handlers/auth";
+import { User } from "@/app/components/types/users";
+import { validateUser } from "@/app/components/handlers/auth";
 
 export interface UserContextType {
   user: User | null;

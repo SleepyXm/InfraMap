@@ -1,3 +1,5 @@
+import type { OAuthIdentityProvider, User } from "@/app/components/types/users";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 export const WSAPI_BASE = process.env.NEXT_PUBLIC_WS_API_BASE;
 
@@ -75,22 +77,6 @@ export async function request<T = unknown>(path: string, options: RequestInit, i
   return data as T;
 }
 
-
-
-export type User = {
-  id: string;
-  username: string;
-  email: string;
-  verified: boolean;
-  identities?: ConnectedIdentity[];
-  accounts?: Account[];
-  hf_token_names?: string[];
-};
-
-export type OAuthProvider = "github" | "google" | "aws";
-export type ConnectedIdentity = { id: string; provider: OAuthProvider; provider_id: string; email: string; username: string; connected_at: string; primary: boolean; };
-export type Account = { id: string; name: string; slug: string; type: "personal" | "organization"; role: "owner" | "admin" | "member" | "viewer"; };
-
 type AuthMessageResponse = {
   message: string;
 };
@@ -148,7 +134,7 @@ export async function login(email: string, password: string): Promise<{ user: Us
   return validateUser();
 }
 
-export function beginOAuth(provider: OAuthProvider, intent: "login" | "connect" = "login"): void {
+export function beginOAuth(provider: OAuthIdentityProvider, intent: "login" | "connect" = "login"): void {
   if (typeof window === "undefined") return;
   window.location.assign(apiUrl(`/api/auth/oauth/${provider}/start${intent === "connect" ? "?intent=connect" : ""}`));
 }

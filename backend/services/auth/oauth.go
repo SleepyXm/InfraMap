@@ -3,10 +3,12 @@ package services
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,12 +23,18 @@ import (
 const oauthStateTTL = 10 * time.Minute
 
 type oauthState struct {
-	Provider string `json:"provider"`
-	Intent   string `json:"intent"`
-	UserID   string `json:"user_id,omitempty"`
+	Provider     string `json:"provider"`
+	Intent       string `json:"intent"`
+	UserID       string `json:"user_id,omitempty"`
+	AccountID    string `json:"account_id,omitempty"`
+	CodeVerifier string `json:"code_verifier,omitempty"`
 }
 type oauthToken struct {
 	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	Scope            string `json:"scope"`
+	ExpiresIn        int    `json:"expires_in"`
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
 }
@@ -36,6 +44,10 @@ func OAuthStart() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		provider := strings.ToLower(c.Param("provider"))
 		intent := c.DefaultQuery("intent", "login")
+		if provider != "github" && provider != "google" && provider != "aws" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported sign-in provider"})
+			return
+		}
 		if intent != "login" && intent != "connect" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid sign-in intent"})
 			return
@@ -68,10 +80,81 @@ func OAuthStart() gin.HandlerFunc {
 	}
 }
 
+func OAuthConnectionStart(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		provider := strings.ToLower(c.Param("provider"))
+		accountID := c.Param("accountID")
+		userID := c.MustGet("userID").(string)
+
+		if provider != "github" && provider != "supabase" {
+			c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("%s connections are not available yet", provider)})
+			return
+		}
+		if _, err := uuid.Parse(accountID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid workspace ID"})
+			return
+		}
+
+		var allowed bool
+		err := db.QueryRowContext(c, `SELECT EXISTS(
+			SELECT 1 FROM account_memberships
+			WHERE account_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')
+		)`, accountID, userID).Scan(&allowed)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not verify workspace access"})
+			return
+		}
+		if !allowed {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only workspace owners and admins can add connections"})
+			return
+		}
+
+		config, ok := oauthConfig(provider)
+		if !ok || config.ClientID == "" || config.ClientSecret == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": fmt.Sprintf("%s OAuth is not configured", provider)})
+			return
+		}
+
+		stateData := oauthState{
+			Provider:  provider,
+			Intent:    "integration",
+			UserID:    userID,
+			AccountID: accountID,
+		}
+		query := url.Values{
+			"client_id":     {config.ClientID},
+			"redirect_uri":  {utils.Cfg.OAuthCallbackURL},
+			"response_type": {"code"},
+		}
+		if provider == "github" {
+			query.Set("scope", "read:user user:email repo read:org")
+		} else {
+			stateData.CodeVerifier = createCodeVerifier()
+			challenge := sha256.Sum256([]byte(stateData.CodeVerifier))
+			query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
+			query.Set("code_challenge_method", "S256")
+		}
+
+		state, err := createOAuthState(c, stateData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not start the provider connection"})
+			return
+		}
+
+		query.Set("state", state)
+		c.Redirect(http.StatusFound, config.AuthorizeURL+"?"+query.Encode())
+	}
+}
+
 func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if providerError := c.Query("error"); providerError != "" {
-			oauthRedirect(c, "", providerError, "login")
+			state, err := consumeOAuthState(c, c.Query("state"))
+			if err != nil {
+				oauthRedirect(c, "", providerError, "login")
+				return
+			}
+			oauthRedirect(c, state.Provider, providerError, state.Intent)
 			return
 		}
 		stateValue, code := c.Query("state"), c.Query("code")
@@ -89,9 +172,18 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 			oauthRedirect(c, state.Provider, "unsupported_provider", state.Intent)
 			return
 		}
-		token, err := exchangeOAuthCode(c, config, code)
+		token, err := exchangeOAuthCode(c, state.Provider, config, code, state.CodeVerifier)
 		if err != nil {
 			oauthRedirect(c, state.Provider, "token_exchange_failed", state.Intent)
+			return
+		}
+		if state.Intent == "integration" {
+			if err := connectOAuthIntegration(c, db, state, token); err != nil {
+				log.Printf("OAuth integration callback failed for %s: %v", state.Provider, err)
+				oauthRedirect(c, state.Provider, "connection_failed", state.Intent)
+				return
+			}
+			oauthRedirect(c, state.Provider, "", state.Intent)
 			return
 		}
 		identity, err := fetchOAuthIdentity(c, state.Provider, config, token.AccessToken)
@@ -120,12 +212,88 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
+func connectOAuthIntegration(ctx context.Context, db *sql.DB, state oauthState, token oauthToken) error {
+	if state.AccountID == "" || state.UserID == "" {
+		return fmt.Errorf("invalid integration state")
+	}
+
+	var allowed bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM account_memberships
+		WHERE account_id = $1 AND user_id = $2 AND role IN ('owner', 'admin')
+	)`, state.AccountID, state.UserID).Scan(&allowed); err != nil {
+		return err
+	}
+	if !allowed {
+		return fmt.Errorf("workspace access was revoked")
+	}
+
+	switch state.Provider {
+	case "github":
+		config, _ := oauthConfig("github")
+		identity, err := fetchOAuthIdentity(ctx, "github", config, token.AccessToken)
+		if err != nil {
+			return err
+		}
+		return connectGitHubIntegration(ctx, db, state, token, identity)
+	case "supabase":
+		return connectSupabaseIntegration(ctx, db, state, token)
+	default:
+		return fmt.Errorf("unsupported integration provider")
+	}
+}
+
+func connectGitHubIntegration(ctx context.Context, db *sql.DB, state oauthState, token oauthToken, identity oauthIdentity) error {
+
+	encryptedToken, err := utils.Encrypt(token.AccessToken)
+	if err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"email": identity.Email,
+		"login": identity.Username,
+		"scope": "read:user user:email repo read:org",
+	})
+	if err != nil {
+		return err
+	}
+
+	var connectionID string
+	err = db.QueryRowContext(ctx, `SELECT id::text FROM connections
+		WHERE account_id = $1 AND provider = 'github' AND external_account_id = $2
+		ORDER BY created_at ASC LIMIT 1`, state.AccountID, identity.ProviderID).Scan(&connectionID)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	name := "GitHub · " + identity.Username
+	if err == nil {
+		_, err = db.ExecContext(ctx, `UPDATE connections
+			SET name = $1,
+				connection_type = 'oauth',
+				secret_ref = $2,
+				metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+				updated_at = NOW()
+			WHERE id = $4`, name, encryptedToken, string(metadata), connectionID)
+		return err
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO connections (
+		id, account_id, name, provider, connection_type, external_account_id,
+		secret_ref, metadata, created_by, created_at, updated_at
+	) VALUES ($1, $2, $3, 'github', 'oauth', $4, $5, $6::jsonb, $7, NOW(), NOW())`,
+		uuid.New(), state.AccountID, name, identity.ProviderID, encryptedToken, string(metadata), state.UserID)
+	return err
+}
+
 func oauthConfig(provider string) (utils.OAuthProviderConfig, bool) {
 	switch provider {
 	case "github":
 		return utils.Cfg.GitHubOAuth, true
 	case "google":
 		return utils.Cfg.GoogleOAuth, true
+	case "supabase":
+		return utils.Cfg.SupabaseOAuth, true
 	case "aws":
 		return utils.Cfg.AWSOAuth, utils.Cfg.AWSOAuth.AuthorizeURL != "" && utils.Cfg.AWSOAuth.TokenURL != "" && utils.Cfg.AWSOAuth.UserInfoURL != ""
 	default:
@@ -158,14 +326,24 @@ func consumeOAuthState(ctx context.Context, value string) (oauthState, error) {
 	return state, json.Unmarshal(payload, &state)
 }
 
-func exchangeOAuthCode(ctx context.Context, config utils.OAuthProviderConfig, code string) (oauthToken, error) {
-	form := url.Values{"client_id": {config.ClientID}, "client_secret": {config.ClientSecret}, "code": {code}, "redirect_uri": {utils.Cfg.OAuthCallbackURL}, "grant_type": {"authorization_code"}}
+func exchangeOAuthCode(ctx context.Context, provider string, config utils.OAuthProviderConfig, code, codeVerifier string) (oauthToken, error) {
+	form := url.Values{"code": {code}, "redirect_uri": {utils.Cfg.OAuthCallbackURL}, "grant_type": {"authorization_code"}}
+	if codeVerifier != "" {
+		form.Set("code_verifier", codeVerifier)
+	}
+	if provider != "supabase" {
+		form.Set("client_id", config.ClientID)
+		form.Set("client_secret", config.ClientSecret)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return oauthToken{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	if provider == "supabase" {
+		req.SetBasicAuth(config.ClientID, config.ClientSecret)
+	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(req)
 	if err != nil {
@@ -180,6 +358,14 @@ func exchangeOAuthCode(ctx context.Context, config utils.OAuthProviderConfig, co
 		return oauthToken{}, fmt.Errorf("oauth token exchange failed: %s", token.Error)
 	}
 	return token, nil
+}
+
+func createCodeVerifier() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return uuid.NewString() + uuid.NewString()
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes)
 }
 
 func fetchOAuthIdentity(ctx context.Context, provider string, config utils.OAuthProviderConfig, accessToken string) (oauthIdentity, error) {
@@ -372,11 +558,17 @@ func issueOAuthSession(ctx *gin.Context, userID string) error {
 func oauthRedirect(c *gin.Context, provider, problem, intent string) {
 	target := utils.Cfg.DevServer + "/login/callback"
 	query := url.Values{}
+	if intent == "integration" {
+		target = utils.Cfg.DevServer + "/workspaces"
+		query.Set("tab", "connections")
+		query.Set("oauth", "success")
+	}
 	if provider != "" {
 		query.Set("provider", provider)
 	}
 	if problem != "" {
 		query.Set("error", problem)
+		query.Del("oauth")
 	}
 	if intent == "connect" {
 		query.Set("intent", intent)

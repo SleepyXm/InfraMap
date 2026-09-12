@@ -4,16 +4,15 @@ import { useState } from "react";
 import {
   beginOAuth,
   login,
-  OAuthProvider,
   signup,
 } from "@/app/components/handlers/auth";
 import { useUser } from "@/app/components/provider/UserProvider";
+import type { OAuthIdentityProvider } from "@/app/components/types/users";
 import styles from "@/app/UI/Auth.module.css";
 
-const providers: { id: OAuthProvider; label: string }[] = [
+const providers: { id: OAuthIdentityProvider; label: string }[] = [
   { id: "github", label: "Continue with GitHub" },
   { id: "google", label: "Continue with Google" },
-  { id: "aws", label: "Continue with AWS" },
 ];
 
 export default function AuthPage() {

@@ -1,0 +1,761 @@
+.page,
+.state {
+  min-height: 100vh;
+  color: var(--foreground);
+}
+
+.page {
+  padding: 7.25rem 0 4rem;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 3rem));
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.workspaceHeader,
+.workspaceIdentity,
+.headerMeta,
+.tabs,
+.intro,
+.panelHeader,
+.providerTop,
+.healthRow,
+.connectionDetail {
+  display: flex;
+  align-items: center;
+}
+
+.workspaceHeader {
+  min-height: 5.25rem;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.25rem;
+}
+
+.workspaceIdentity {
+  gap: 0.8rem;
+}
+
+.workspaceMark,
+.stateMark {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.workspaceIdentity div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.workspaceIdentity label,
+.providerCard small,
+.metric span,
+.metric small,
+.healthRow small,
+.headerMeta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.workspaceIdentity select {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0 1.4rem 0 0;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 680;
+  outline: none;
+  cursor: pointer;
+}
+
+.headerMeta {
+  gap: 0.45rem;
+  text-transform: capitalize;
+}
+
+.headerMeta span {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.55rem;
+}
+
+.tabs {
+  gap: 1.4rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.25rem;
+}
+
+.tabs button {
+  position: relative;
+  border: 0;
+  background: transparent;
+  padding: 1rem 0;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.tabs button::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--brand);
+  content: "";
+  transform: scaleX(0);
+  transition: transform 160ms ease;
+}
+
+.tabs button:hover,
+.tabs .activeTab {
+  color: var(--foreground);
+}
+
+.tabs .activeTab::after {
+  transform: scaleX(1);
+}
+
+.overview,
+.connections {
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.intro {
+  justify-content: space-between;
+  gap: 2rem;
+  padding-bottom: 2.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.55rem;
+  color: var(--brand-deep);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.intro h1,
+.connectionsHead h1 {
+  margin: 0;
+  font-size: clamp(2.3rem, 5vw, 4rem);
+  font-weight: 650;
+  letter-spacing: -0.065em;
+  line-height: 1;
+}
+
+.intro p:last-child,
+.connectionsHead p:last-child {
+  max-width: 620px;
+  margin: 0.85rem 0 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.primaryAction,
+.emptyProject button,
+.connectButton,
+.retry {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.75rem 0.9rem;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 680;
+  cursor: pointer;
+  transition: border-color 150ms, background-color 150ms, color 150ms;
+}
+
+.primaryAction {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #281507;
+}
+
+.primaryAction:hover,
+.emptyProject button:hover,
+.connectButton:hover:not(:disabled),
+.retry:hover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+}
+
+.primaryAction:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--border);
+}
+
+.metric {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  padding: 1.15rem;
+}
+
+.metric + .metric {
+  border-left: 1px solid var(--border);
+}
+
+.metric strong {
+  font-size: 2rem;
+  font-weight: 620;
+  letter-spacing: -0.055em;
+}
+
+.overviewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.panelHeader {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: 1.2rem;
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.035em;
+}
+
+.count {
+  color: var(--text-muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.82rem;
+}
+
+.emptyProject {
+  display: grid;
+  min-height: 300px;
+  place-items: center;
+  align-content: center;
+  gap: 1.25rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.emptyProject p {
+  max-width: 460px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.projectFlow {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  overflow: hidden;
+}
+
+.projectFlow span {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 0.5rem 0.65rem;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.72rem;
+}
+
+.projectFlow i {
+  width: 1.2rem;
+  height: 1px;
+  background: var(--border);
+}
+
+.healthList {
+  display: grid;
+}
+
+.healthRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.15rem;
+}
+
+.healthRow:last-child {
+  border-bottom: 0;
+}
+
+.healthRow div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.healthRow strong {
+  font-size: 0.88rem;
+}
+
+.healthRow small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providerMark,
+.providerMarkLarge {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.providerMark {
+  width: 2rem;
+  height: 2rem;
+}
+
+.providerMarkLarge {
+  width: 2.7rem;
+  height: 2.7rem;
+}
+
+.statusActive,
+.statusPartial,
+.statusIdle {
+  width: fit-content;
+  border: 1px solid var(--border);
+  padding: 0.28rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.statusActive {
+  border-color: #9dcbae;
+  background: #e7f5eb;
+  color: #21673d;
+}
+
+.statusPartial {
+  border-color: #e5bd83;
+  background: #fff3db;
+  color: #7c5417;
+}
+
+.statusIdle {
+  color: var(--text-muted);
+}
+
+.connectionsHead {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.providerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.providerCard {
+  display: grid;
+  min-height: 300px;
+  gap: 2rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 1.25rem;
+}
+
+.providerTop,
+.connectionDetail {
+  justify-content: space-between;
+}
+
+.providerCard h2 {
+  margin: 0.35rem 0 0.6rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.045em;
+}
+
+.providerCard p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.connectButton,
+.connectionDetail {
+  align-self: end;
+  width: 100%;
+}
+
+.connectButton {
+  display: flex;
+  justify-content: space-between;
+}
+
+.connectButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.connectionDetail {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+  font-size: 0.82rem;
+}
+
+.connectionDetail span {
+  color: var(--text-muted);
+}
+
+.connectionNote,
+.error {
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.notice {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--brand-soft);
+  padding: 0.8rem clamp(1.5rem, 4vw, 3rem);
+  color: var(--brand-deep);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.error {
+  border: 1px solid #d7a1a1;
+  background: #fff0f0;
+  padding: 0.75rem;
+  color: #8b2828;
+}
+
+.repositoryPanel {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.repositoryHeader,
+.repositoryToolbar,
+.repositoryFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.repositoryHeader {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border);
+  padding: 1.25rem;
+}
+
+.repositoryHeader h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.045em;
+}
+
+.repositoryHeader p:last-child {
+  max-width: 650px;
+  margin: 0.45rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.closeButton,
+.cancelButton {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.closeButton {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  font-size: 1.25rem;
+}
+
+.closeButton:hover,
+.cancelButton:hover {
+  border-color: var(--brand);
+  color: var(--brand-deep);
+}
+
+.permissionNote {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 0.8rem 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.repositoryToolbar {
+  border-bottom: 1px solid var(--border);
+  padding: 0.9rem 1.25rem;
+}
+
+.repositoryToolbar input {
+  width: min(420px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 0.7rem 0.8rem;
+  color: var(--foreground);
+  font: inherit;
+  outline: none;
+}
+
+.repositoryToolbar input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
+}
+
+.repositoryToolbar span {
+  color: var(--text-muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.repositoryState {
+  margin: 0;
+  padding: 2.5rem 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.repositoryList {
+  max-height: 430px;
+  overflow: auto;
+}
+
+.repositoryRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.9rem 1.25rem;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.repositoryRow:hover {
+  background: var(--surface-muted);
+}
+
+.repositoryRow input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--brand);
+}
+
+.repositoryRow > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.22rem;
+}
+
+.repositoryRow strong {
+  overflow: hidden;
+  font-size: 0.87rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repositoryRow small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repositoryRow em {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+}
+
+.repositoryFooter {
+  padding: 1rem 1.25rem;
+}
+
+.cancelButton {
+  padding: 0.75rem 0.9rem;
+  font-size: 0.86rem;
+  font-weight: 680;
+}
+
+.state {
+  display: grid;
+  place-items: center;
+  padding: 7rem 1.5rem 3rem;
+  text-align: center;
+}
+
+.state div {
+  display: grid;
+  max-width: 480px;
+  justify-items: center;
+  gap: 1rem;
+}
+
+.state h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: -0.06em;
+  line-height: 1;
+}
+
+.state a {
+  color: var(--brand-deep);
+  font-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .statusActive {
+    border-color: #315f40;
+    background: #173321;
+    color: #9cdeb1;
+  }
+
+  .statusPartial {
+    border-color: #6b4e27;
+    background: #332515;
+    color: #f2c681;
+  }
+
+  .error {
+    border-color: #6e3b3b;
+    background: #321b1b;
+    color: #f0aaaa;
+  }
+}
+
+@media (max-width: 840px) {
+  .shell {
+    width: min(100% - 2rem, 680px);
+  }
+
+  .metrics,
+  .providerGrid,
+  .overviewGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .overviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .metric:nth-child(4) {
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding-top: 6.25rem;
+  }
+
+  .shell {
+    width: calc(100% - 1rem);
+  }
+
+  .workspaceHeader,
+  .intro,
+  .connectionsHead,
+  .repositoryHeader,
+  .repositoryFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .repositoryToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .repositoryToolbar input {
+    width: 100%;
+  }
+
+  .repositoryFooter .primaryAction,
+  .repositoryFooter .cancelButton {
+    width: 100%;
+  }
+
+  .headerMeta {
+    display: none;
+  }
+
+  .metrics,
+  .providerGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric + .metric {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .projectFlow span {
+    padding: 0.45rem;
+    font-size: 0.65rem;
+  }
+}

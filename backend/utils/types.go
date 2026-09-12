@@ -1,6 +1,10 @@
 package utils
 
-import "github.com/golang-jwt/jwt/v5"
+import (
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
 
 type OAuthProviderConfig struct {
 	ClientID     string
@@ -9,6 +13,14 @@ type OAuthProviderConfig struct {
 	TokenURL     string
 	UserInfoURL  string
 	Scope        string
+}
+
+type OAuthTokenBundle struct {
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	TokenType    string    `json:"token_type"`
+	Scope        string    `json:"scope,omitempty"`
+	ExpiresAt    time.Time `json:"expires_at,omitempty"`
 }
 
 type Config struct {
@@ -27,6 +39,7 @@ type Config struct {
 	OAuthCallbackURL         string
 	GitHubOAuth              OAuthProviderConfig
 	GoogleOAuth              OAuthProviderConfig
+	SupabaseOAuth            OAuthProviderConfig
 	AWSOAuth                 OAuthProviderConfig
 }
 
