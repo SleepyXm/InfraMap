@@ -1,0 +1,7 @@
+.actions { display: grid; align-self: end; grid-template-columns: minmax(0, 1fr) auto; width: 100%; }
+.primary, .secondary { min-height: 2.8rem; border: 1px solid var(--border); border-radius: 0; color: var(--foreground); font: inherit; font-size: 0.78rem; font-weight: 680; cursor: pointer; transition: border-color 150ms, background-color 150ms, color 150ms; }
+.primary { display: flex; justify-content: space-between; gap: 1rem; background: var(--surface); padding: 0.75rem 0.85rem; }
+.secondary { border-left: 0; background: var(--surface-muted); padding: 0.75rem; color: var(--text-muted); }
+.primary:hover, .secondary:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-deep); }
+.primary:focus-visible, .secondary:focus-visible { position: relative; outline: 2px solid var(--brand); outline-offset: 2px; z-index: 1; }
+@media (max-width: 420px) { .actions { grid-template-columns: 1fr; } .secondary { border-top: 0; border-left: 1px solid var(--border); } }

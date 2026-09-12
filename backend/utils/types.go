@@ -40,6 +40,7 @@ type Config struct {
 	GitHubOAuth              OAuthProviderConfig
 	GoogleOAuth              OAuthProviderConfig
 	SupabaseOAuth            OAuthProviderConfig
+	VercelOAuth              OAuthProviderConfig
 	AWSOAuth                 OAuthProviderConfig
 }
 

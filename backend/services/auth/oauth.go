@@ -34,11 +34,14 @@ type oauthToken struct {
 	RefreshToken     string `json:"refresh_token"`
 	TokenType        string `json:"token_type"`
 	Scope            string `json:"scope"`
+	TeamID           string `json:"team_id"`
+	UserID           string `json:"user_id"`
 	ExpiresIn        int    `json:"expires_in"`
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
 }
 type oauthIdentity struct{ ProviderID, Email, Username string }
+type oauthCallbackDetails struct{ TeamID, ConfigurationID, NextURL string }
 
 func OAuthStart() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -86,7 +89,7 @@ func OAuthConnectionStart(db *sql.DB) gin.HandlerFunc {
 		accountID := c.Param("accountID")
 		userID := c.MustGet("userID").(string)
 
-		if provider != "github" && provider != "supabase" {
+		if provider != "github" && provider != "supabase" && provider != "vercel" {
 			c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("%s connections are not available yet", provider)})
 			return
 		}
@@ -121,14 +124,15 @@ func OAuthConnectionStart(db *sql.DB) gin.HandlerFunc {
 			UserID:    userID,
 			AccountID: accountID,
 		}
-		query := url.Values{
-			"client_id":     {config.ClientID},
-			"redirect_uri":  {utils.Cfg.OAuthCallbackURL},
-			"response_type": {"code"},
+		query := url.Values{}
+		if provider != "vercel" {
+			query.Set("client_id", config.ClientID)
+			query.Set("redirect_uri", utils.Cfg.OAuthCallbackURL)
+			query.Set("response_type", "code")
 		}
 		if provider == "github" {
 			query.Set("scope", "read:user user:email repo read:org")
-		} else {
+		} else if provider == "supabase" {
 			stateData.CodeVerifier = createCodeVerifier()
 			challenge := sha256.Sum256([]byte(stateData.CodeVerifier))
 			query.Set("code_challenge", base64.RawURLEncoding.EncodeToString(challenge[:]))
@@ -178,10 +182,21 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if state.Intent == "integration" {
-			if err := connectOAuthIntegration(c, db, state, token); err != nil {
+			details := oauthCallbackDetails{
+				TeamID:          firstValue(c.Query("teamId"), token.TeamID),
+				ConfigurationID: c.Query("configurationId"),
+				NextURL:         c.Query("next"),
+			}
+			if err := connectOAuthIntegration(c, db, state, token, details); err != nil {
 				log.Printf("OAuth integration callback failed for %s: %v", state.Provider, err)
 				oauthRedirect(c, state.Provider, "connection_failed", state.Intent)
 				return
+			}
+			if state.Provider == "vercel" {
+				if completionURL, ok := vercelCompletionURL(details.NextURL); ok {
+					c.Redirect(http.StatusFound, completionURL)
+					return
+				}
 			}
 			oauthRedirect(c, state.Provider, "", state.Intent)
 			return
@@ -212,7 +227,7 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-func connectOAuthIntegration(ctx context.Context, db *sql.DB, state oauthState, token oauthToken) error {
+func connectOAuthIntegration(ctx context.Context, db *sql.DB, state oauthState, token oauthToken, details oauthCallbackDetails) error {
 	if state.AccountID == "" || state.UserID == "" {
 		return fmt.Errorf("invalid integration state")
 	}
@@ -238,6 +253,8 @@ func connectOAuthIntegration(ctx context.Context, db *sql.DB, state oauthState, 
 		return connectGitHubIntegration(ctx, db, state, token, identity)
 	case "supabase":
 		return connectSupabaseIntegration(ctx, db, state, token)
+	case "vercel":
+		return connectVercelIntegration(ctx, db, state, token, details)
 	default:
 		return fmt.Errorf("unsupported integration provider")
 	}
@@ -294,6 +311,8 @@ func oauthConfig(provider string) (utils.OAuthProviderConfig, bool) {
 		return utils.Cfg.GoogleOAuth, true
 	case "supabase":
 		return utils.Cfg.SupabaseOAuth, true
+	case "vercel":
+		return utils.Cfg.VercelOAuth, true
 	case "aws":
 		return utils.Cfg.AWSOAuth, utils.Cfg.AWSOAuth.AuthorizeURL != "" && utils.Cfg.AWSOAuth.TokenURL != "" && utils.Cfg.AWSOAuth.UserInfoURL != ""
 	default:
@@ -327,7 +346,10 @@ func consumeOAuthState(ctx context.Context, value string) (oauthState, error) {
 }
 
 func exchangeOAuthCode(ctx context.Context, provider string, config utils.OAuthProviderConfig, code, codeVerifier string) (oauthToken, error) {
-	form := url.Values{"code": {code}, "redirect_uri": {utils.Cfg.OAuthCallbackURL}, "grant_type": {"authorization_code"}}
+	form := url.Values{"code": {code}, "redirect_uri": {utils.Cfg.OAuthCallbackURL}}
+	if provider != "vercel" {
+		form.Set("grant_type", "authorization_code")
+	}
 	if codeVerifier != "" {
 		form.Set("code_verifier", codeVerifier)
 	}
@@ -577,6 +599,20 @@ func oauthRedirect(c *gin.Context, provider, problem, intent string) {
 		target += "?" + query.Encode()
 	}
 	c.Redirect(http.StatusFound, target)
+}
+func vercelCompletionURL(value string) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+	target, err := url.Parse(value)
+	if err != nil || target.Scheme != "https" {
+		return "", false
+	}
+	host := strings.ToLower(target.Hostname())
+	if host != "vercel.com" && !strings.HasSuffix(host, ".vercel.com") {
+		return "", false
+	}
+	return target.String(), true
 }
 func stringValue(value any) string {
 	switch typed := value.(type) {

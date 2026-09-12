@@ -7,17 +7,22 @@ import {
   beginWorkspaceOAuth,
   getGitHubRepositories,
   getSupabaseProjects,
+  getVercelProjects,
   updateGitHubRepositories,
   updateSupabaseProjects,
-} from "@/app/components/handlers/workspaces";
-import { useWorkspaceConnections } from "@/app/components/hooks/UseWorkspaces";
+  updateVercelProjects,
+  useWorkspaceConnections,
+} from "@/app/features/workspaces/connections";
+import { ProjectPreviewList, ProjectWorkspace, useWorkspaceProjects } from "@/app/features/workspaces/projects";
 import { useUser } from "@/app/components/provider/UserProvider";
 import type {
   Connection,
   ConnectionProvider,
   GitHubRepository,
   SupabaseProject,
+  VercelProject,
 } from "@/app/components/types/users";
+import { ConnectionActions } from "@/app/UI/ConnectionActions";
 import { ResourceSelector } from "@/app/UI/ResourceSelector";
 import styles from "@/app/UI/Workspace.module.css";
 
@@ -45,7 +50,7 @@ const providers: Provider[] = [
     mark: "▲",
     category: "Deployment",
     description: "Bring projects, deployments, domains, logs, and environment configuration together.",
-    pendingLabel: "OAuth setup next",
+    pendingLabel: "Connect Vercel projects",
   },
   {
     id: "supabase",
@@ -73,7 +78,7 @@ const providers: Provider[] = [
   },
 ];
 
-type WorkspaceTab = "overview" | "connections";
+type WorkspaceTab = "overview" | "workspaces" | "connections";
 
 export default function WorkspacesPage() {
   return (
@@ -86,11 +91,10 @@ export default function WorkspacesPage() {
 function WorkspaceContent() {
   const searchParams = useSearchParams();
   const { user, resolved } = useUser();
-  const [tab, setTab] = useState<WorkspaceTab>(
-    searchParams.get("tab") === "connections" ? "connections" : "overview",
-  );
+  const [tab, setTab] = useState<WorkspaceTab>(() => getWorkspaceTab(searchParams.get("tab")));
   const [selectedAccountID, setSelectedAccountID] = useState("");
   const [notice, setNotice] = useState(() => getConnectionNotice(searchParams));
+  const [projectComposerOpen, setProjectComposerOpen] = useState(false);
   const [repositoryConnectionID, setRepositoryConnectionID] = useState("");
   const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
   const [repositorySearch, setRepositorySearch] = useState("");
@@ -105,16 +109,31 @@ function WorkspaceContent() {
   const [supabaseLoading, setSupabaseLoading] = useState(false);
   const [supabaseSaving, setSupabaseSaving] = useState(false);
   const [supabaseError, setSupabaseError] = useState("");
+  const [vercelConnectionID, setVercelConnectionID] = useState("");
+  const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
+  const [vercelSearch, setVercelSearch] = useState("");
+  const [selectedVercelProjectIDs, setSelectedVercelProjectIDs] = useState<Set<string>>(new Set());
+  const [vercelLoading, setVercelLoading] = useState(false);
+  const [vercelSaving, setVercelSaving] = useState(false);
+  const [vercelError, setVercelError] = useState("");
   const accounts = useMemo(() => user?.accounts ?? [], [user?.accounts]);
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountID) ?? accounts[0],
     [accounts, selectedAccountID],
   );
   const { connections, loading, error, refresh } = useWorkspaceConnections(selectedAccount?.id);
+  const {
+    projects,
+    loading: projectsLoading,
+    error: projectsError,
+    refresh: refreshProjects,
+    createProject,
+  } = useWorkspaceProjects(selectedAccount?.id);
   const githubIdentity = user?.identities?.find((identity) => identity.provider === "github");
 
   function changeWorkspace(accountID: string) {
     setSelectedAccountID(accountID);
+    setProjectComposerOpen(false);
     setRepositoryConnectionID("");
     setRepositories([]);
     setSelectedRepositoryIDs(new Set());
@@ -123,6 +142,10 @@ function WorkspaceContent() {
     setSupabaseProjects([]);
     setSelectedSupabaseRefs(new Set());
     setSupabaseError("");
+    setVercelConnectionID("");
+    setVercelProjects([]);
+    setSelectedVercelProjectIDs(new Set());
+    setVercelError("");
   }
 
   const connectedProviders = useMemo(
@@ -141,10 +164,15 @@ function WorkspaceContent() {
     [project.name, project.ref, project.organization_slug]
       .some((value) => value.toLowerCase().includes(supabaseSearch.trim().toLowerCase())),
   );
+  const filteredVercelProjects = vercelProjects.filter((project) =>
+    [project.name, project.id, project.framework]
+      .some((value) => value.toLowerCase().includes(vercelSearch.trim().toLowerCase())),
+  );
 
   async function openRepositoryPicker(connection: Connection) {
     if (!selectedAccount) return;
     setSupabaseConnectionID("");
+    setVercelConnectionID("");
     setRepositoryConnectionID(connection.id);
     setRepositoryLoading(true);
     setRepositoryError("");
@@ -194,6 +222,7 @@ function WorkspaceContent() {
   async function openSupabasePicker(connection: Connection) {
     if (!selectedAccount) return;
     setRepositoryConnectionID("");
+    setVercelConnectionID("");
     setSupabaseConnectionID(connection.id);
     setSupabaseLoading(true);
     setSupabaseError("");
@@ -240,6 +269,60 @@ function WorkspaceContent() {
     });
   }
 
+  async function openVercelPicker(connection: Connection) {
+    if (!selectedAccount) return;
+    setRepositoryConnectionID("");
+    setSupabaseConnectionID("");
+    setVercelConnectionID(connection.id);
+    setVercelLoading(true);
+    setVercelError("");
+    setVercelSearch("");
+
+    try {
+      const available = await getVercelProjects(selectedAccount.id, connection.id);
+      setVercelProjects(available);
+      setSelectedVercelProjectIDs(new Set(available.filter((project) => project.selected).map((project) => project.id)));
+    } catch (caught) {
+      setVercelError(caught instanceof Error ? caught.message : "Vercel projects could not be loaded.");
+    } finally {
+      setVercelLoading(false);
+    }
+  }
+
+  async function saveVercelSelection() {
+    if (!selectedAccount || !vercelConnectionID) return;
+    setVercelSaving(true);
+    setVercelError("");
+
+    try {
+      await updateVercelProjects(selectedAccount.id, vercelConnectionID, Array.from(selectedVercelProjectIDs));
+      await refresh();
+      setNotice("Vercel project access saved for this workspace.");
+      setVercelConnectionID("");
+    } catch (caught) {
+      setVercelError(caught instanceof Error ? caught.message : "Vercel project selection could not be saved.");
+    } finally {
+      setVercelSaving(false);
+    }
+  }
+
+  function toggleVercelProject(projectID: string) {
+    setSelectedVercelProjectIDs((current) => {
+      const next = new Set(current);
+      if (next.has(projectID)) next.delete(projectID);
+      else next.add(projectID);
+      return next;
+    });
+  }
+
+  async function connectProvider(provider: ConnectionProvider) {
+    if (!selectedAccount) return;
+    const result = await beginWorkspaceOAuth(selectedAccount.id, provider);
+    if (result !== "completed") return;
+    await refresh();
+    setNotice("Vercel workspace access is connected. Select the projects InfraMap should manage.");
+  }
+
   if (!resolved) return <main className={styles.state}>Loading your workspaces…</main>;
 
   if (!user) {
@@ -275,14 +358,28 @@ function WorkspaceContent() {
               </select>
             </div>
           </div>
-          <div className={styles.headerMeta}>
-            <span>{selectedAccount.role}</span>
-            <span>{selectedAccount.type}</span>
+          <div className={styles.headerActions}>
+            <div className={styles.headerMeta}>
+              <span>{selectedAccount.role}</span>
+              <span>{selectedAccount.type}</span>
+            </div>
+            <button
+              type="button"
+              className={styles.headerCreate}
+              disabled={selectedAccount.role === "viewer"}
+              onClick={() => {
+                setTab("workspaces");
+                setProjectComposerOpen(true);
+              }}
+            >
+              New project
+            </button>
           </div>
         </header>
 
         <nav className={styles.tabs} aria-label="Workspace sections">
           <button type="button" className={tab === "overview" ? styles.activeTab : ""} onClick={() => setTab("overview")}>Overview</button>
+          <button type="button" className={tab === "workspaces" ? styles.activeTab : ""} onClick={() => setTab("workspaces")}>Workspaces</button>
           <button type="button" className={tab === "connections" ? styles.activeTab : ""} onClick={() => setTab("connections")}>Connections</button>
         </nav>
 
@@ -296,11 +393,21 @@ function WorkspaceContent() {
                 <h1>{selectedAccount.name}</h1>
                 <p>One place to understand the source, deployments, data, and infrastructure behind every project.</p>
               </div>
-              <button type="button" className={styles.primaryAction} onClick={() => setTab("connections")}>Add a connection</button>
+              <button
+                type="button"
+                className={styles.primaryAction}
+                disabled={selectedAccount.role === "viewer"}
+                onClick={() => {
+                  setTab("workspaces");
+                  setProjectComposerOpen(true);
+                }}
+              >
+                New project
+              </button>
             </section>
 
             <section className={styles.metrics} aria-label="Workspace summary">
-              <Metric label="Projects" value="0" detail="Ready to attach" />
+              <Metric label="Projects" value={String(projects.length)} detail={projects.length ? "Inside this workspace" : "Ready to create"} />
               <Metric label="Active connections" value={String(activeConnections)} detail={githubIdentity ? "GitHub identity linked" : "No source identity"} />
               <Metric label="Repositories" value={String(selectedRepositoryCount)} detail="Attached to this workspace" />
               <Metric label="Drift" value="—" detail="No environments tracked" />
@@ -311,20 +418,11 @@ function WorkspaceContent() {
                 <div className={styles.panelHeader}>
                   <div>
                     <p className={styles.eyebrow}>Projects</p>
-                    <h2>Nothing attached yet</h2>
+                    <h2>{projects.length ? "Your control planes" : "Nothing attached yet"}</h2>
                   </div>
-                  <span className={styles.count}>0</span>
+                  <span className={styles.count}>{projects.length}</span>
                 </div>
-                <div className={styles.emptyProject}>
-                  <div className={styles.projectFlow} aria-hidden="true">
-                    <span>Source</span><i />
-                    <span>Runtime</span><i />
-                    <span>Data</span><i />
-                    <span>Cloud</span>
-                  </div>
-                  <p>A project starts when a repository or an existing deployment is attached to this workspace.</p>
-                  <button type="button" onClick={() => setTab("connections")}>Configure providers</button>
-                </div>
+                <ProjectPreviewList projects={projects} onOpen={() => setTab("workspaces")} />
               </section>
 
               <section className={styles.panel}>
@@ -355,6 +453,18 @@ function WorkspaceContent() {
               </section>
             </div>
           </div>
+        ) : tab === "workspaces" ? (
+          <ProjectWorkspace
+            projects={projects}
+            loading={projectsLoading}
+            error={projectsError}
+            canCreate={selectedAccount.role !== "viewer"}
+            composerOpen={projectComposerOpen}
+            onComposerChange={setProjectComposerOpen}
+            onCreate={createProject}
+            onRetry={refreshProjects}
+            onCreated={(project) => setNotice(`${project.name} was created. Connections can now be attached.`)}
+          />
         ) : (
           <section className={styles.connections}>
             <div className={styles.connectionsHead}>
@@ -374,8 +484,8 @@ function WorkspaceContent() {
                 const selectedCount = connection
                   ? provider.id === "github"
                     ? getSelectedRepositoryCount(connection)
-                    : provider.id === "supabase"
-                      ? getSelectedSupabaseProjectCount(connection)
+                    : provider.id === "supabase" || provider.id === "vercel"
+                      ? getSelectedProjectCount(connection)
                       : 0
                   : 0;
                 return (
@@ -392,18 +502,31 @@ function WorkspaceContent() {
                       <p>{provider.description}</p>
                     </div>
                     {provider.id === "github" && connection ? (
-                      <button type="button" className={styles.connectButton} onClick={() => void openRepositoryPicker(connection)}>
-                        <span>{selectedCount ? `${selectedCount} selected` : "Select repositories"}</span><span>→</span>
-                      </button>
+                      <ConnectionActions
+                        primaryLabel={selectedCount ? `${selectedCount} selected` : "Select repositories"}
+                        reconnectLabel="Reconnect"
+                        onPrimary={() => void openRepositoryPicker(connection)}
+                        onReconnect={() => void connectProvider(provider.id)}
+                      />
                     ) : provider.id === "supabase" && connection ? (
-                      <button type="button" className={styles.connectButton} onClick={() => void openSupabasePicker(connection)}>
-                        <span>{selectedCount ? `${selectedCount} selected` : "Select projects"}</span><span>→</span>
-                      </button>
-                    ) : provider.id === "github" || provider.id === "supabase" ? (
+                      <ConnectionActions
+                        primaryLabel={selectedCount ? `${selectedCount} selected` : "Select projects"}
+                        reconnectLabel="Reconnect"
+                        onPrimary={() => void openSupabasePicker(connection)}
+                        onReconnect={() => void connectProvider(provider.id)}
+                      />
+                    ) : provider.id === "vercel" && connection ? (
+                      <ConnectionActions
+                        primaryLabel={selectedCount ? `${selectedCount} selected` : "Select projects"}
+                        reconnectLabel="Reconnect"
+                        onPrimary={() => void openVercelPicker(connection)}
+                        onReconnect={() => void connectProvider(provider.id)}
+                      />
+                    ) : provider.id === "github" || provider.id === "supabase" || provider.id === "vercel" ? (
                       <button
                         type="button"
                         className={styles.connectButton}
-                        onClick={() => beginWorkspaceOAuth(selectedAccount.id, provider.id)}
+                        onClick={() => void connectProvider(provider.id)}
                       >
                         <span>{provider.pendingLabel}</span><span>→</span>
                       </button>
@@ -469,7 +592,33 @@ function WorkspaceContent() {
               />
             )}
 
-            <p className={styles.connectionNote}>Vercel still needs its provider application. Cloudflare is staged for scoped API tokens, while AWS is staged for a cross-account role.</p>
+            {vercelConnectionID && (
+              <ResourceSelector
+                eyebrow="Vercel deployment"
+                title="Select Vercel projects"
+                description="Attach the deployed projects that InfraMap should place inside this workspace's control layer."
+                permissionNote="InfraMap keeps the Vercel installation token encrypted on the backend. The browser receives project metadata, never the provider credential."
+                searchPlaceholder="Find a Vercel project"
+                emptyMessage="No authorised Vercel projects match this search. Check the integration's project scope in Vercel."
+                options={filteredVercelProjects.map((project) => ({
+                  id: project.id,
+                  title: project.name,
+                  description: `Updated ${formatVercelTimestamp(project.updatedAt)} · ${project.id}`,
+                  tag: formatVercelFramework(project.framework),
+                }))}
+                selected={selectedVercelProjectIDs}
+                search={vercelSearch}
+                loading={vercelLoading}
+                saving={vercelSaving}
+                error={vercelError}
+                onSearchChange={setVercelSearch}
+                onToggle={toggleVercelProject}
+                onClose={() => setVercelConnectionID("")}
+                onSave={() => void saveVercelSelection()}
+              />
+            )}
+
+            <p className={styles.connectionNote}>Cloudflare is staged for scoped API tokens, while AWS is staged for a cross-account role.</p>
           </section>
         )}
       </div>
@@ -487,12 +636,16 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
+function getWorkspaceTab(tab: string | null): WorkspaceTab {
+  return tab === "connections" || tab === "workspaces" ? tab : "overview";
+}
+
 function getSelectedRepositoryCount(connection: Connection): number {
   const repositories = connection.metadata?.repositories;
   return Array.isArray(repositories) ? repositories.length : 0;
 }
 
-function getSelectedSupabaseProjectCount(connection: Connection): number {
+function getSelectedProjectCount(connection: Connection): number {
   const projects = connection.metadata?.projects;
   return Array.isArray(projects) ? projects.length : 0;
 }
@@ -505,8 +658,22 @@ function formatSupabaseStatus(status: string): string {
     .join(" ");
 }
 
+function formatVercelFramework(framework: string): string {
+  if (!framework) return "Other";
+  return framework
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatVercelTimestamp(timestamp: number): string {
+  if (!timestamp) return "recently";
+  return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(timestamp));
+}
+
 function getConnectionNotice(searchParams: Pick<URLSearchParams, "get">): string {
-  const provider = searchParams.get("provider") === "supabase" ? "Supabase" : "GitHub";
+  const requestedProvider = searchParams.get("provider");
+  const provider = requestedProvider === "supabase" ? "Supabase" : requestedProvider === "vercel" ? "Vercel" : "GitHub";
   if (searchParams.get("oauth") === "success") return `${provider} workspace access is connected.`;
 
   switch (searchParams.get("error")) {

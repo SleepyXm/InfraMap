@@ -59,5 +59,6 @@ func main() {
 
 	api := router.Group("/api")
 	routes.RegisterAuthRoutes(api.Group("/auth"), db)
+	routes.RegisterProjectRoutes(api.Group("/accounts"), db)
 	router.Run(":8000")
 }

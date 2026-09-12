@@ -1,0 +1,51 @@
+.projects { padding: clamp(1.5rem, 4vw, 3rem); }
+.heading, .composerHeading, .composerActions, .cardTop { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+.heading { align-items: end; margin-bottom: 2rem; }
+.eyebrow { margin: 0 0 0.55rem; color: var(--brand-deep); font-size: 0.75rem; font-weight: 750; letter-spacing: 0.11em; text-transform: uppercase; }
+.heading h1 { margin: 0; font-size: clamp(2.3rem, 5vw, 4rem); font-weight: 650; letter-spacing: -0.065em; line-height: 1; }
+.heading > div > p:last-child { max-width: 650px; margin: 0.85rem 0 0; color: var(--text-muted); line-height: 1.6; }
+.primaryAction, .secondaryAction, .closeButton { border: 1px solid var(--border); border-radius: 0; background: var(--surface); padding: 0.75rem 0.9rem; color: var(--foreground); font: inherit; font-size: 0.86rem; font-weight: 680; cursor: pointer; transition: border-color 150ms, background-color 150ms, color 150ms; }
+.primaryAction { border-color: var(--brand); background: var(--brand); color: #281507; }
+.primaryAction:hover:not(:disabled), .secondaryAction:hover, .closeButton:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-deep); }
+.primaryAction:disabled { cursor: not-allowed; opacity: 0.55; }
+.composer { display: grid; gap: 1rem; margin-bottom: 1rem; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 93%, transparent); padding: 1.25rem; }
+.composerHeading { align-items: flex-start; padding-bottom: 0.25rem; }
+.composerHeading h2 { margin: 0; font-size: 1.35rem; letter-spacing: -0.045em; }
+.closeButton { display: grid; width: 2rem; height: 2rem; padding: 0; place-items: center; font-size: 1.2rem; }
+.composer label { display: grid; gap: 0.45rem; color: var(--foreground); font-size: 0.8rem; font-weight: 680; }
+.composer label small { color: var(--text-muted); font-weight: 500; }
+.composer input, .composer textarea { width: 100%; border: 1px solid var(--border); border-radius: 0; background: var(--surface); padding: 0.8rem; color: var(--foreground); font: inherit; outline: none; resize: vertical; }
+.composer input:focus, .composer textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.composerActions { justify-content: flex-end; padding-top: 0.25rem; }
+.error { margin: 0; border: 1px solid #d7a1a1; background: #fff0f0; padding: 0.75rem; color: #8b2828; font-size: 0.82rem; }
+.errorState, .state, .empty { border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.errorState { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; color: #8b2828; }
+.errorState p, .state { margin: 0; }
+.state { padding: 4rem 1.5rem; color: var(--text-muted); text-align: center; }
+.empty { display: grid; min-height: 380px; place-items: center; align-content: center; gap: 1rem; padding: 2rem; text-align: center; }
+.emptyMark { display: grid; width: 3rem; height: 3rem; place-items: center; background: var(--foreground); color: var(--background); font-family: var(--font-geist-mono), monospace; font-size: 0.75rem; font-weight: 800; }
+.empty h2 { margin: 0; font-size: 1.6rem; letter-spacing: -0.045em; }
+.empty p { max-width: 500px; margin: 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.55; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.card { display: grid; min-height: 310px; align-content: space-between; gap: 1.5rem; border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 90%, transparent); padding: 1.25rem; }
+.projectMark { display: grid; width: 2.7rem; height: 2.7rem; place-items: center; background: var(--foreground); color: var(--background); font-size: 0.72rem; font-weight: 800; }
+.status { border: 1px solid var(--border); padding: 0.28rem 0.45rem; color: var(--text-muted); font-size: 0.68rem; font-weight: 700; text-transform: capitalize; }
+.card h2 { margin: 0; font-size: 1.45rem; letter-spacing: -0.045em; }
+.card p { margin: 0.6rem 0 0; color: var(--text-muted); font-size: 0.88rem; line-height: 1.55; }
+.providers { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); }
+.providers span { padding: 0.55rem 0.4rem; color: var(--text-muted); font-family: var(--font-geist-mono), monospace; font-size: 0.62rem; text-align: center; }
+.providers span + span { border-left: 1px solid var(--border); }
+.openProject { display: flex; justify-content: space-between; color: var(--foreground); font-size: 0.8rem; font-weight: 700; text-decoration: none; }
+.openProject:hover { color: var(--brand-deep); }
+.previewEmpty { display: grid; min-height: 250px; place-items: center; align-content: center; gap: 1rem; padding: 2rem; text-align: center; }
+.previewEmpty p { max-width: 390px; margin: 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.55; }
+.previewList { display: grid; }
+.previewRow { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 0; border-bottom: 1px solid var(--border); background: transparent; padding: 1rem 1.2rem; color: var(--foreground); text-align: left; text-decoration: none; cursor: pointer; transition: background-color 150ms; }
+.previewRow:hover, .previewMore:hover { background: var(--surface-muted); }
+.previewRow > span { display: grid; min-width: 0; gap: 0.2rem; }
+.previewRow strong { overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
+.previewRow small { overflow: hidden; color: var(--text-muted); font-size: 0.76rem; text-overflow: ellipsis; white-space: nowrap; }
+.previewRow em { border: 1px solid var(--border); padding: 0.25rem 0.4rem; color: var(--text-muted); font-size: 0.66rem; font-style: normal; text-transform: capitalize; }
+.previewMore { border: 0; background: transparent; padding: 0.9rem 1.2rem; color: var(--brand-deep); font: inherit; font-size: 0.8rem; font-weight: 700; text-align: left; cursor: pointer; }
+@media (prefers-color-scheme: dark) { .error { border-color: #6e3b3b; background: #321b1b; color: #f0aaaa; } .errorState { color: #f0aaaa; } }
+@media (max-width: 720px) { .heading { align-items: stretch; flex-direction: column; } .grid { grid-template-columns: 1fr; } .heading .primaryAction { width: 100%; } }

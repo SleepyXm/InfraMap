@@ -51,3 +51,25 @@ func TestNormalizeLogin(t *testing.T) {
 		t.Fatalf("email = %q", request.Email)
 	}
 }
+
+func TestVercelCompletionURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		allowed bool
+	}{
+		{name: "vercel", value: "https://vercel.com/dashboard/integrations", allowed: true},
+		{name: "vercel subdomain", value: "https://app.vercel.com/integrations", allowed: true},
+		{name: "lookalike host", value: "https://vercel.com.example.com/steal", allowed: false},
+		{name: "insecure scheme", value: "http://vercel.com/integrations", allowed: false},
+		{name: "external host", value: "https://example.com", allowed: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, allowed := vercelCompletionURL(test.value)
+			if allowed != test.allowed {
+				t.Fatalf("allowed = %v, want %v", allowed, test.allowed)
+			}
+		})
+	}
+}

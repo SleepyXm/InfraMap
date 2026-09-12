@@ -115,3 +115,13 @@ export type SupabaseProject = {
   };
   selected: boolean;
 };
+
+export type VercelProject = {
+  id: string;
+  name: string;
+  framework: string;
+  accountId: string;
+  createdAt: number;
+  updatedAt: number;
+  selected: boolean;
+};

@@ -26,6 +26,8 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, db *sql.DB) {
 	rg.PUT("/:accountID/connections/:connectionID/github/repositories", middleware.AuthMiddleware(db), connections.UpdateGitHubRepositories(db))
 	rg.GET("/:accountID/connections/:connectionID/supabase/projects", middleware.AuthMiddleware(db), connections.GetSupabaseProjects(db))
 	rg.PUT("/:accountID/connections/:connectionID/supabase/projects", middleware.AuthMiddleware(db), connections.UpdateSupabaseProjects(db))
+	rg.GET("/:accountID/connections/:connectionID/vercel/projects", middleware.AuthMiddleware(db), connections.GetVercelProjects(db))
+	rg.PUT("/:accountID/connections/:connectionID/vercel/projects", middleware.AuthMiddleware(db), connections.UpdateVercelProjects(db))
 	rg.DELETE("/:accountID/connections/:connectionID", middleware.AuthMiddleware(db), connections.DeleteConnection(db))
 	rg.GET("/hi", auth.Hi())
 }

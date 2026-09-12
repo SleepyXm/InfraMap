@@ -49,7 +49,7 @@ func GetGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		token, selected, _, err := loadGitHubConnection(c, db, userID, accountID, connectionID)
+		token, selected, _, err := LoadGitHubConnection(c, db, userID, accountID, connectionID)
 		if errors.Is(err, errGitHubConnectionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "GitHub connection not found"})
 			return
@@ -59,7 +59,7 @@ func GetGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		repositories, err := fetchGitHubRepositories(c, token)
+		repositories, err := FetchGitHubRepositories(c, token)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "GitHub repositories could not be loaded"})
 			return
@@ -93,7 +93,7 @@ func UpdateGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		token, _, role, err := loadGitHubConnection(c, db, userID, accountID, connectionID)
+		token, _, role, err := LoadGitHubConnection(c, db, userID, accountID, connectionID)
 		if errors.Is(err, errGitHubConnectionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "GitHub connection not found"})
 			return
@@ -107,7 +107,7 @@ func UpdateGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		repositories, err := fetchGitHubRepositories(c, token)
+		repositories, err := FetchGitHubRepositories(c, token)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "GitHub repositories could not be verified"})
 			return
@@ -162,7 +162,7 @@ func validConnectionIDs(accountID, connectionID string) bool {
 	return accountErr == nil && connectionErr == nil
 }
 
-func loadGitHubConnection(
+func LoadGitHubConnection(
 	ctx context.Context,
 	db *sql.DB,
 	userID string,
@@ -206,7 +206,7 @@ func loadGitHubConnection(
 	return token, selected, role, nil
 }
 
-func fetchGitHubRepositories(ctx context.Context, token string) ([]GitHubRepository, error) {
+func FetchGitHubRepositories(ctx context.Context, token string) ([]GitHubRepository, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	repositories := make([]GitHubRepository, 0)
 
