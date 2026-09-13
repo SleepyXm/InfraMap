@@ -59,6 +59,13 @@ func main() {
 
 	api := router.Group("/api")
 	routes.RegisterAuthRoutes(api.Group("/auth"), db)
-	routes.RegisterProjectRoutes(api.Group("/accounts"), db)
+	routes.RegisterConnectionRoutes(api.Group("/auth"), db)
+	accounts := api.Group("/accounts")
+	routes.RegisterWorkspaceRoutes(accounts, db)
+	routes.RegisterSourceRoutes(accounts, db)
+	routes.RegisterServiceRoutes(accounts, db)
+	routes.RegisterScanRoutes(accounts, db)
+	routes.RegisterDeploymentRoutes(accounts, db)
+	routes.RegisterMetricRoutes(accounts, db)
 	router.Run(":8000")
 }

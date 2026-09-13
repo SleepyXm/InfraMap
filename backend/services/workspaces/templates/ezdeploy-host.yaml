@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: InfraMap workspace-scoped EZDeploy host. No inbound management port is created.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the deployment host.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet with internet routing for application traffic and package installation.
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  ApplicationIngressCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+    Description: CIDR allowed to reach deployed applications on ports 80 and 443.
+  InfraMapPrincipalArn:
+    Type: String
+    Default: "{{INFRAMAP_PRINCIPAL_ARN}}"
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:(?:role|user)/[A-Za-z0-9+=,.@_/-]+$"
+  InfraMapExternalId:
+    Type: String
+    Default: "{{INFRAMAP_EXTERNAL_ID}}"
+    NoEcho: true
+  InfraMapSourceCidr:
+    Type: String
+    Default: "{{INFRAMAP_SOURCE_CIDR}}"
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+    Description: Exact public egress CIDR used by the InfraMap backend when assuming this role.
+  WorkspaceId:
+    Type: String
+    Default: "{{WORKSPACE_ID}}"
+  EZDeployRepository:
+    Type: String
+    Default: https://github.com/SleepyXm/EZDeploy.git
+    AllowedPattern: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$"
+  EZDeployRevision:
+    Type: String
+    Default: dc73f87383b081790d19426dadbf0e8e31ffc1cb
+    AllowedPattern: "^[0-9a-f]{40}$"
+  GoVersion:
+    Type: String
+    Default: 1.27.1
+    AllowedPattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+  GoArchiveSha256:
+    Type: String
+    Default: 63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+    AllowedPattern: "^[0-9a-f]{64}$"
+
+Resources:
+  DeploymentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public web traffic for an InfraMap-managed EZDeploy host
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref ApplicationIngressCidr
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref ApplicationIngressCidr
+      Tags:
+        - Key: InfraMapWorkspaceId
+          Value: !Ref WorkspaceId
+
+  HostRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: InfraMapWorkspaceId
+          Value: !Ref WorkspaceId
+
+  HostInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref HostRole]
+
+  DeploymentHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile:
+        Name: !Ref HostInstanceProfile
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet: [!Ref DeploymentSecurityGroup]
+          SubnetId: !Ref SubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 20
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub InfraMap-${WorkspaceId}
+        - Key: InfraMapManaged
+          Value: "true"
+        - Key: InfraMapWorkspaceId
+          Value: !Ref WorkspaceId
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          dnf install -y git gzip tar sudo
+          curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go${GoVersion}.linux-amd64.tar.gz"
+          echo "${GoArchiveSha256}  /tmp/go.tgz" | sha256sum -c -
+          rm -rf /usr/local/go
+          tar -C /usr/local -xzf /tmp/go.tgz
+          rm -f /tmp/go.tgz
+          id ezdeploy >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ezdeploy
+          rm -rf /opt/ezdeploy
+          git clone "${EZDeployRepository}" /opt/ezdeploy
+          git -C /opt/ezdeploy checkout --detach "${EZDeployRevision}"
+          cd /opt/ezdeploy
+          /usr/local/go/bin/go build -trimpath -o /opt/ezdeploy/ezdeploy .
+          chown -R root:root /opt/ezdeploy
+          chmod 0755 /opt/ezdeploy/ezdeploy
+          printf '%s\n' 'ezdeploy ALL=(root) NOPASSWD: /opt/ezdeploy/ezdeploy *' >/etc/sudoers.d/ezdeploy
+          chmod 0440 /etc/sudoers.d/ezdeploy
+          systemctl enable --now amazon-ssm-agent
+
+  EZDeployCommandDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      DocumentFormat: YAML
+      TargetType: /AWS::EC2::Instance
+      Tags:
+        - Key: InfraMapWorkspaceId
+          Value: !Ref WorkspaceId
+      Content:
+        schemaVersion: "2.2"
+        description: Run one validated EZDeploy operation for this InfraMap workspace.
+        parameters:
+          Operation:
+            type: String
+            allowedValues: [deploy, redeploy]
+          RepositoryURL:
+            type: String
+            allowedPattern: "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$"
+          Branch:
+            type: String
+            allowedPattern: "^[A-Za-z0-9._/-]+$"
+          Domain:
+            type: String
+            allowedPattern: "^(?:\\*\\.)?[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
+          Email:
+            type: String
+            allowedPattern: "^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$"
+          Runtime:
+            type: String
+            allowedValues: [native, docker]
+          Service:
+            type: String
+            default: ""
+            allowedPattern: "^[A-Za-z0-9._/,-]*$"
+        mainSteps:
+          - action: aws:runShellScript
+            name: runEZDeploy
+            inputs:
+              timeoutSeconds: "3600"
+              runCommand:
+                - set -euo pipefail
+                - test -x /opt/ezdeploy/ezdeploy
+                - set -- "{{ Operation }}" "{{ RepositoryURL }}" --branch "{{ Branch }}" --domain "{{ Domain }}" --email "{{ Email }}" --runtime "{{ Runtime }}" --non-interactive
+                - if [[ -n "{{ Service }}" ]]; then set -- "$@" --service "{{ Service }}"; fi
+                - sudo -u ezdeploy sudo /opt/ezdeploy/ezdeploy "$@"
+
+  InfraMapControlRole:
+    Type: AWS::IAM::Role
+    Properties:
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref InfraMapPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref InfraMapExternalId
+              IpAddress:
+                aws:SourceIp: !Ref InfraMapSourceCidr
+      Policies:
+        - PolicyName: InfraMapWorkspaceDeploymentControl
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: UseOnlyWorkspaceDocument
+                Effect: Allow
+                Action:
+                  - ssm:GetDocument
+                  - ssm:DescribeDocument
+                  - ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${EZDeployCommandDocument}
+                Condition:
+                  IpAddress:
+                    aws:SourceIp: !Ref InfraMapSourceCidr
+              - Sid: TargetOnlyWorkspaceHost
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${DeploymentHost}
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/InfraMapWorkspaceId: !Ref WorkspaceId
+                  IpAddress:
+                    aws:SourceIp: !Ref InfraMapSourceCidr
+              - Sid: ReadOnlyCommandState
+                Effect: Allow
+                Action:
+                  - ssm:CancelCommand
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                  - ssm:ListCommands
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+                Condition:
+                  IpAddress:
+                    aws:SourceIp: !Ref InfraMapSourceCidr
+
+Outputs:
+  ControlRoleArn:
+    Value: !GetAtt InfraMapControlRole.Arn
+  DeploymentHostInstanceId:
+    Value: !Ref DeploymentHost
+  DeploymentHostPublicIp:
+    Value: !GetAtt DeploymentHost.PublicIp
+  EZDeployCommandDocumentName:
+    Value: !Ref EZDeployCommandDocument
+  AWSAccountId:
+    Value: !Ref AWS::AccountId
+  AWSRegion:
+    Value: !Ref AWS::Region

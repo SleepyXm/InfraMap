@@ -1,18 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fffaf5;
-  --foreground: #191716;
-  --surface: #ffffff;
-  --surface-muted: #f5eee7;
-  --border: #e6dbd1;
-  --text-muted: #685f5a;
+  --background: #eee9e1;
+  --foreground: #181512;
+  --surface: #fffdf9;
+  --surface-raised: #fffcf7;
+  --surface-muted: #e5ded4;
+  --surface-sunken: #dcd3c7;
+  --border: #cec4b7;
+  --border-strong: #a99d90;
+  --text-muted: #625a52;
   --brand: #f6821f;
-  --brand-deep: #b94a10;
-  --brand-soft: #fff0e2;
+  --brand-deep: #a9430d;
+  --brand-soft: #ffe4cb;
   --signal: #5757d9;
-  --grid-line: rgb(25 23 22 / 0.11);
-  --grid-hover: rgb(25 23 22 / 0.46);
+  --grid-line: rgb(49 41 34 / 0.1);
+  --grid-hover: rgb(24 20 17 / 0.52);
+  --shadow-low: 0 1px 0 rgb(54 42 31 / 0.08), 0 12px 35px rgb(54 42 31 / 0.08);
 }
 
 @theme inline {
@@ -31,14 +35,18 @@ body {
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #141210;
     --foreground: #fff8f1;
     --surface: #1d1a18;
+    --surface-raised: #211d1a;
     --surface-muted: #28231f;
+    --surface-sunken: #100e0d;
     --border: #3d3631;
+    --border-strong: #665a51;
     --text-muted: #c6b9af;
     --brand: #ff8b2a;
     --brand-deep: #ffad69;
@@ -46,6 +54,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
     --signal: #9b9bff;
     --grid-line: rgb(210 203 196 / 0.16);
     --grid-hover: rgb(255 139 42 / 0.78);
+    --shadow-low: 0 1px 0 rgb(255 255 255 / 0.025), 0 16px 40px rgb(0 0 0 / 0.28);
     color-scheme: dark;
   }
 }

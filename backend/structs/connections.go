@@ -73,8 +73,8 @@ type DeploymentConnection struct {
 // DataConnection represents a database or backend platform such as Supabase, Neon, or PlanetScale.
 type DataConnection struct {
 	Connection
-	ProjectID   string `json:"project_id,omitempty"`
-	ProjectName string `json:"project_name,omitempty"`
+	ServiceID   string `json:"service_id,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
 	Region      string `json:"region,omitempty"`
 }
 

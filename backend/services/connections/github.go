@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -38,6 +40,19 @@ type updateGitHubRepositoriesRequest struct {
 	RepositoryIDs []int64 `json:"repository_ids"`
 }
 
+type GitHubAPIError struct {
+	Status    int
+	Message   string
+	RequestID string
+}
+
+func (err *GitHubAPIError) Error() string {
+	if err.Message == "" {
+		return fmt.Sprintf("github returned status %d", err.Status)
+	}
+	return fmt.Sprintf("github returned status %d: %s", err.Status, err.Message)
+}
+
 func GetGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("userID").(string)
@@ -61,9 +76,11 @@ func GetGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 
 		repositories, err := FetchGitHubRepositories(c, token)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "GitHub repositories could not be loaded"})
+			updateGitHubConnectionHealth(c, db, accountID, connectionID, err)
+			WriteGitHubRepositoryError(c, err, "loaded")
 			return
 		}
+		updateGitHubConnectionHealth(c, db, accountID, connectionID, nil)
 		for index := range repositories {
 			repositories[index].Selected = selected[repositories[index].ID]
 		}
@@ -109,9 +126,11 @@ func UpdateGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 
 		repositories, err := FetchGitHubRepositories(c, token)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "GitHub repositories could not be verified"})
+			updateGitHubConnectionHealth(c, db, accountID, connectionID, err)
+			WriteGitHubRepositoryError(c, err, "verified")
 			return
 		}
+		updateGitHubConnectionHealth(c, db, accountID, connectionID, nil)
 		available := make(map[int64]GitHubRepository, len(repositories))
 		for _, repository := range repositories {
 			available[repository.ID] = repository
@@ -151,7 +170,6 @@ func UpdateGitHubRepositories(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "GitHub connection not found"})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{"repositories": selected})
 	}
 }
@@ -231,8 +249,9 @@ func FetchGitHubRepositories(ctx context.Context, token string) ([]GitHubReposit
 			return nil, err
 		}
 		if response.StatusCode >= 300 {
+			apiError := decodeGitHubAPIError(response)
 			response.Body.Close()
-			return nil, fmt.Errorf("github returned status %d", response.StatusCode)
+			return nil, apiError
 		}
 
 		var pageRepositories []GitHubRepository
@@ -248,4 +267,74 @@ func FetchGitHubRepositories(ctx context.Context, token string) ([]GitHubReposit
 	}
 
 	return repositories, nil
+}
+
+func decodeGitHubAPIError(response *http.Response) *GitHubAPIError {
+	var payload struct {
+		Message string `json:"message"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload)
+	return &GitHubAPIError{Status: response.StatusCode, Message: payload.Message, RequestID: response.Header.Get("X-GitHub-Request-Id")}
+}
+
+func WriteGitHubRepositoryError(c *gin.Context, err error, action string) {
+	log.Printf("GitHub repositories could not be %s: %v", action, err)
+	var apiError *GitHubAPIError
+	if !errors.As(err, &apiError) {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":  "GitHub could not be reached",
+			"code":   "github_unreachable",
+			"detail": "InfraMap could not reach GitHub. Retry the request; reconnecting is not required for a network failure.",
+		})
+		return
+	}
+	payload := gin.H{"provider_status": apiError.Status}
+	if apiError.RequestID != "" {
+		payload["provider_request_id"] = apiError.RequestID
+	}
+	switch apiError.Status {
+	case http.StatusUnauthorized:
+		payload["error"] = "GitHub workspace access has expired"
+		payload["code"] = "github_reauthentication_required"
+		payload["detail"] = "GitHub rejected this workspace connection. Reconnect GitHub here to replace the expired token; your InfraMap sign-in is unaffected."
+		c.JSON(http.StatusFailedDependency, payload)
+	case http.StatusForbidden:
+		payload["error"] = "GitHub blocked repository access"
+		payload["code"] = "github_access_forbidden"
+		payload["detail"] = "GitHub accepted the token but blocked repository access. Reconnect the workspace connection, then authorise the requested repositories or organisation SSO access."
+		c.JSON(http.StatusFailedDependency, payload)
+	case http.StatusTooManyRequests:
+		payload["error"] = "GitHub rate limit reached"
+		payload["code"] = "github_rate_limited"
+		payload["detail"] = "GitHub temporarily rate-limited this workspace connection. Retry shortly; reconnecting will not fix a rate limit."
+		c.JSON(http.StatusServiceUnavailable, payload)
+	default:
+		payload["error"] = "GitHub repositories could not be " + action
+		payload["code"] = "github_provider_error"
+		payload["detail"] = fmt.Sprintf("GitHub returned status %d while repositories were being %s.", apiError.Status, action)
+		c.JSON(http.StatusBadGateway, payload)
+	}
+}
+
+func updateGitHubConnectionHealth(ctx context.Context, db *sql.DB, accountID, connectionID string, providerErr error) {
+	status, code := "active", ""
+	var apiError *GitHubAPIError
+	if errors.As(providerErr, &apiError) {
+		if apiError.Status == http.StatusUnauthorized {
+			status, code = "invalid", "github_reauthentication_required"
+		} else if apiError.Status == http.StatusForbidden {
+			status, code = "invalid", "github_access_forbidden"
+		} else {
+			return
+		}
+	} else if providerErr != nil {
+		return
+	}
+	_, err := db.ExecContext(ctx, `UPDATE connections
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('health_status', $1, 'last_error_code', NULLIF($2, '')),
+			updated_at = NOW()
+		WHERE id = $3 AND account_id = $4 AND provider = 'github'`, status, code, connectionID, accountID)
+	if err != nil {
+		log.Printf("GitHub connection health could not be saved: %v", err)
+	}
 }

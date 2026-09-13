@@ -1,9 +1,12 @@
 package services
 
 import (
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
+	connections "InfraMap/services/connections"
 	"InfraMap/structs"
 )
 
@@ -71,5 +74,24 @@ func TestVercelCompletionURL(t *testing.T) {
 				t.Fatalf("allowed = %v, want %v", allowed, test.allowed)
 			}
 		})
+	}
+}
+
+func TestSafeOAuthReturnTo(t *testing.T) {
+	allowed := "/workspaces/account/workspace?setup=1"
+	if actual := safeOAuthReturnTo(allowed); actual != allowed {
+		t.Fatalf("return path = %q, want %q", actual, allowed)
+	}
+	for _, value := range []string{"https://example.com/steal", "//example.com/steal", "workspaces/workspace"} {
+		if actual := safeOAuthReturnTo(value); actual != "" {
+			t.Fatalf("unsafe return path %q was accepted as %q", value, actual)
+		}
+	}
+}
+
+func TestIntegrationOAuthProblemPreservesGitHubFailure(t *testing.T) {
+	err := fmt.Errorf("verify repositories: %w", &connections.GitHubAPIError{Status: http.StatusForbidden})
+	if problem := integrationOAuthProblem("github", err); problem != "github_repository_access_forbidden" {
+		t.Fatalf("problem = %q", problem)
 	}
 }

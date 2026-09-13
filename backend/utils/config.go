@@ -35,6 +35,8 @@ func Load() {
 		SupabaseOAuth:            OAuthProviderConfig{ClientID: os.Getenv("SUPABASE_CLIENT_ID"), ClientSecret: os.Getenv("SUPABASE_CLIENT_SECRET"), AuthorizeURL: "https://api.supabase.com/v1/oauth/authorize", TokenURL: "https://api.supabase.com/v1/oauth/token"},
 		VercelOAuth:              OAuthProviderConfig{ClientID: os.Getenv("VERCEL_CLIENT_ID"), ClientSecret: os.Getenv("VERCEL_CLIENT_SECRET"), AuthorizeURL: "https://vercel.com/integrations/" + envOrDefault("VERCEL_INTEGRATION_SLUG", "inframap-dev") + "/new", TokenURL: "https://api.vercel.com/v2/oauth/access_token"},
 		AWSOAuth:                 OAuthProviderConfig{ClientID: os.Getenv("AWS_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("AWS_OAUTH_CLIENT_SECRET"), AuthorizeURL: os.Getenv("AWS_OAUTH_AUTHORIZE_URL"), TokenURL: os.Getenv("AWS_OAUTH_TOKEN_URL"), UserInfoURL: os.Getenv("AWS_OAUTH_USERINFO_URL"), Scope: envOrDefault("AWS_OAUTH_SCOPE", "openid email profile")},
+		AWSControlPrincipalARN:   os.Getenv("AWS_CONTROL_PLANE_PRINCIPAL_ARN"),
+		AWSControlSourceCIDR:     os.Getenv("AWS_CONTROL_PLANE_SOURCE_CIDR"),
 	}
 }
 

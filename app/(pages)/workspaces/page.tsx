@@ -6,22 +6,18 @@ import { useSearchParams } from "next/navigation";
 import {
   beginWorkspaceOAuth,
   getGitHubRepositories,
-  getSupabaseProjects,
-  getVercelProjects,
+  getSupabaseServices,
+  getVercelServices,
   updateGitHubRepositories,
-  updateSupabaseProjects,
-  updateVercelProjects,
-  useWorkspaceConnections,
-} from "@/app/features/workspaces/connections";
-import { ProjectPreviewList, ProjectWorkspace, useWorkspaceProjects } from "@/app/features/workspaces/projects";
+  updateSupabaseServices,
+  updateVercelServices,
+} from "@/app/components/handlers/connections";
+import { useWorkspaceConnections } from "@/app/features/workspaces/connections";
+import { WorkspaceList, WorkspacePreviewList, useWorkspaces } from "@/app/features/workspaces/control";
 import { useUser } from "@/app/components/provider/UserProvider";
-import type {
-  Connection,
-  ConnectionProvider,
-  GitHubRepository,
-  SupabaseProject,
-  VercelProject,
-} from "@/app/components/types/users";
+import { ApiError } from "@/app/components/handlers/auth";
+import type { Connection, ConnectionProvider, GitHubRepository } from "@/app/components/types/connections";
+import type { SupabaseService, VercelService } from "@/app/components/types/services";
 import { ConnectionActions } from "@/app/UI/ConnectionActions";
 import { ResourceSelector } from "@/app/UI/ResourceSelector";
 import styles from "@/app/UI/Workspace.module.css";
@@ -94,7 +90,7 @@ function WorkspaceContent() {
   const [tab, setTab] = useState<WorkspaceTab>(() => getWorkspaceTab(searchParams.get("tab")));
   const [selectedAccountID, setSelectedAccountID] = useState("");
   const [notice, setNotice] = useState(() => getConnectionNotice(searchParams));
-  const [projectComposerOpen, setProjectComposerOpen] = useState(false);
+  const [workspaceComposerOpen, setWorkspaceComposerOpen] = useState(false);
   const [repositoryConnectionID, setRepositoryConnectionID] = useState("");
   const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
   const [repositorySearch, setRepositorySearch] = useState("");
@@ -102,15 +98,16 @@ function WorkspaceContent() {
   const [repositoryLoading, setRepositoryLoading] = useState(false);
   const [repositorySaving, setRepositorySaving] = useState(false);
   const [repositoryError, setRepositoryError] = useState("");
+  const [repositoryErrorCode, setRepositoryErrorCode] = useState("");
   const [supabaseConnectionID, setSupabaseConnectionID] = useState("");
-  const [supabaseProjects, setSupabaseProjects] = useState<SupabaseProject[]>([]);
+  const [supabaseProjects, setSupabaseProjects] = useState<SupabaseService[]>([]);
   const [supabaseSearch, setSupabaseSearch] = useState("");
   const [selectedSupabaseRefs, setSelectedSupabaseRefs] = useState<Set<string>>(new Set());
   const [supabaseLoading, setSupabaseLoading] = useState(false);
   const [supabaseSaving, setSupabaseSaving] = useState(false);
   const [supabaseError, setSupabaseError] = useState("");
   const [vercelConnectionID, setVercelConnectionID] = useState("");
-  const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
+  const [vercelProjects, setVercelProjects] = useState<VercelService[]>([]);
   const [vercelSearch, setVercelSearch] = useState("");
   const [selectedVercelProjectIDs, setSelectedVercelProjectIDs] = useState<Set<string>>(new Set());
   const [vercelLoading, setVercelLoading] = useState(false);
@@ -123,21 +120,23 @@ function WorkspaceContent() {
   );
   const { connections, loading, error, refresh } = useWorkspaceConnections(selectedAccount?.id);
   const {
-    projects,
-    loading: projectsLoading,
-    error: projectsError,
-    refresh: refreshProjects,
-    createProject,
-  } = useWorkspaceProjects(selectedAccount?.id);
+    workspaces,
+    loading: workspacesLoading,
+    error: workspacesError,
+    refresh: refreshWorkspaces,
+    createWorkspace,
+    deleteWorkspace,
+  } = useWorkspaces(selectedAccount?.id);
   const githubIdentity = user?.identities?.find((identity) => identity.provider === "github");
 
   function changeWorkspace(accountID: string) {
     setSelectedAccountID(accountID);
-    setProjectComposerOpen(false);
+    setWorkspaceComposerOpen(false);
     setRepositoryConnectionID("");
     setRepositories([]);
     setSelectedRepositoryIDs(new Set());
     setRepositoryError("");
+    setRepositoryErrorCode("");
     setSupabaseConnectionID("");
     setSupabaseProjects([]);
     setSelectedSupabaseRefs(new Set());
@@ -148,10 +147,6 @@ function WorkspaceContent() {
     setVercelError("");
   }
 
-  const connectedProviders = useMemo(
-    () => new Set(connections.map((connection) => connection.provider)),
-    [connections],
-  );
   const activeConnections = connections.filter((connection) => connection.status === "active").length;
   const selectedRepositoryCount = connections.reduce(
     (total, connection) => total + getSelectedRepositoryCount(connection),
@@ -176,6 +171,7 @@ function WorkspaceContent() {
     setRepositoryConnectionID(connection.id);
     setRepositoryLoading(true);
     setRepositoryError("");
+    setRepositoryErrorCode("");
     setRepositorySearch("");
 
     try {
@@ -184,6 +180,7 @@ function WorkspaceContent() {
       setSelectedRepositoryIDs(new Set(available.filter((repository) => repository.selected).map((repository) => repository.id)));
     } catch (caught) {
       setRepositoryError(caught instanceof Error ? caught.message : "Repositories could not be loaded.");
+      setRepositoryErrorCode(caught instanceof ApiError && typeof caught.payload.code === "string" ? caught.payload.code : "");
     } finally {
       setRepositoryLoading(false);
     }
@@ -229,7 +226,7 @@ function WorkspaceContent() {
     setSupabaseSearch("");
 
     try {
-      const available = await getSupabaseProjects(selectedAccount.id, connection.id);
+      const available = await getSupabaseServices(selectedAccount.id, connection.id);
       setSupabaseProjects(available);
       setSelectedSupabaseRefs(new Set(available.filter((project) => project.selected).map((project) => project.ref)));
     } catch (caught) {
@@ -245,7 +242,7 @@ function WorkspaceContent() {
     setSupabaseError("");
 
     try {
-      await updateSupabaseProjects(
+      await updateSupabaseServices(
         selectedAccount.id,
         supabaseConnectionID,
         Array.from(selectedSupabaseRefs),
@@ -279,7 +276,7 @@ function WorkspaceContent() {
     setVercelSearch("");
 
     try {
-      const available = await getVercelProjects(selectedAccount.id, connection.id);
+      const available = await getVercelServices(selectedAccount.id, connection.id);
       setVercelProjects(available);
       setSelectedVercelProjectIDs(new Set(available.filter((project) => project.selected).map((project) => project.id)));
     } catch (caught) {
@@ -295,7 +292,7 @@ function WorkspaceContent() {
     setVercelError("");
 
     try {
-      await updateVercelProjects(selectedAccount.id, vercelConnectionID, Array.from(selectedVercelProjectIDs));
+      await updateVercelServices(selectedAccount.id, vercelConnectionID, Array.from(selectedVercelProjectIDs));
       await refresh();
       setNotice("Vercel project access saved for this workspace.");
       setVercelConnectionID("");
@@ -337,7 +334,7 @@ function WorkspaceContent() {
     );
   }
 
-  if (!selectedAccount) return <main className={styles.state}>No workspace is attached to this account yet.</main>;
+  if (!selectedAccount) return <main className={styles.state}>No account is available yet.</main>;
 
   return (
     <main className={styles.page}>
@@ -346,7 +343,7 @@ function WorkspaceContent() {
           <div className={styles.workspaceIdentity}>
             <span className={styles.workspaceMark}>{selectedAccount.name.slice(0, 2).toUpperCase()}</span>
             <div>
-              <label htmlFor="workspace-select">Workspace</label>
+              <label htmlFor="workspace-select">Account</label>
               <select
                 id="workspace-select"
                 value={selectedAccount.id}
@@ -369,10 +366,10 @@ function WorkspaceContent() {
               disabled={selectedAccount.role === "viewer"}
               onClick={() => {
                 setTab("workspaces");
-                setProjectComposerOpen(true);
+                setWorkspaceComposerOpen(true);
               }}
             >
-              New project
+              New workspace
             </button>
           </div>
         </header>
@@ -389,9 +386,9 @@ function WorkspaceContent() {
           <div className={styles.overview}>
             <section className={styles.intro}>
               <div>
-                <p className={styles.eyebrow}>Workspace overview</p>
+                <p className={styles.eyebrow}>Account overview</p>
                 <h1>{selectedAccount.name}</h1>
-                <p>One place to understand the source, deployments, data, and infrastructure behind every project.</p>
+                <p>One place to understand each workspace&apos;s sources, services, environments, and resources.</p>
               </div>
               <button
                 type="button"
@@ -399,17 +396,17 @@ function WorkspaceContent() {
                 disabled={selectedAccount.role === "viewer"}
                 onClick={() => {
                   setTab("workspaces");
-                  setProjectComposerOpen(true);
+                  setWorkspaceComposerOpen(true);
                 }}
               >
-                New project
+                New workspace
               </button>
             </section>
 
-            <section className={styles.metrics} aria-label="Workspace summary">
-              <Metric label="Projects" value={String(projects.length)} detail={projects.length ? "Inside this workspace" : "Ready to create"} />
+            <section className={styles.metrics} aria-label="Account summary">
+              <Metric label="Workspaces" value={String(workspaces.length)} detail={workspaces.length ? "Inside this account" : "Ready to create"} />
               <Metric label="Active connections" value={String(activeConnections)} detail={githubIdentity ? "GitHub identity linked" : "No source identity"} />
-              <Metric label="Repositories" value={String(selectedRepositoryCount)} detail="Attached to this workspace" />
+              <Metric label="Repositories" value={String(selectedRepositoryCount)} detail="Available to these workspaces" />
               <Metric label="Drift" value="—" detail="No environments tracked" />
             </section>
 
@@ -417,12 +414,12 @@ function WorkspaceContent() {
               <section className={styles.panel}>
                 <div className={styles.panelHeader}>
                   <div>
-                    <p className={styles.eyebrow}>Projects</p>
-                    <h2>{projects.length ? "Your control planes" : "Nothing attached yet"}</h2>
+                    <p className={styles.eyebrow}>Workspaces</p>
+                    <h2>{workspaces.length ? "Your control planes" : "Nothing attached yet"}</h2>
                   </div>
-                  <span className={styles.count}>{projects.length}</span>
+                  <span className={styles.count}>{workspaces.length}</span>
                 </div>
-                <ProjectPreviewList projects={projects} onOpen={() => setTab("workspaces")} />
+                <WorkspacePreviewList workspaces={workspaces} onOpen={() => setTab("workspaces")} />
               </section>
 
               <section className={styles.panel}>
@@ -434,17 +431,19 @@ function WorkspaceContent() {
                 </div>
                 <div className={styles.healthList}>
                   {providers.map((provider) => {
-                    const connected = connectedProviders.has(provider.id);
-                    const identityOnly = provider.id === "github" && githubIdentity && !connected;
+                    const connection = connections.find((item) => item.provider === provider.id);
+                    const connected = connection?.status === "active";
+                    const invalid = connection?.status === "invalid";
+                    const identityOnly = provider.id === "github" && githubIdentity && !connection;
                     return (
                       <div key={provider.id} className={styles.healthRow}>
                         <span className={styles.providerMark}>{provider.mark}</span>
                         <div>
                           <strong>{provider.name}</strong>
-                          <small>{connected ? "Operational connection" : identityOnly ? "Identity linked · repository access needed" : "Not connected"}</small>
+                          <small>{connected ? "Operational connection" : invalid ? "Workspace access needs reconnecting" : identityOnly ? "Identity linked · repository access needed" : "Not connected"}</small>
                         </div>
-                        <span className={connected ? styles.statusActive : identityOnly ? styles.statusPartial : styles.statusIdle}>
-                          {connected ? "Active" : identityOnly ? "Partial" : "Offline"}
+                        <span className={connected ? styles.statusActive : invalid || identityOnly ? styles.statusPartial : styles.statusIdle}>
+                          {connected ? "Active" : invalid ? "Expired" : identityOnly ? "Partial" : "Offline"}
                         </span>
                       </div>
                     );
@@ -454,16 +453,18 @@ function WorkspaceContent() {
             </div>
           </div>
         ) : tab === "workspaces" ? (
-          <ProjectWorkspace
-            projects={projects}
-            loading={projectsLoading}
-            error={projectsError}
+          <WorkspaceList
+            workspaces={workspaces}
+            loading={workspacesLoading}
+            error={workspacesError}
             canCreate={selectedAccount.role !== "viewer"}
-            composerOpen={projectComposerOpen}
-            onComposerChange={setProjectComposerOpen}
-            onCreate={createProject}
-            onRetry={refreshProjects}
-            onCreated={(project) => setNotice(`${project.name} was created. Connections can now be attached.`)}
+            canDelete={selectedAccount.role === "owner" || selectedAccount.role === "admin"}
+            onDelete={deleteWorkspace}
+            composerOpen={workspaceComposerOpen}
+            onComposerChange={setWorkspaceComposerOpen}
+            onCreate={createWorkspace}
+            onRetry={refreshWorkspaces}
+            onCreated={(workspace) => setNotice(`${workspace.name} was created. Connections can now be attached.`)}
           />
         ) : (
           <section className={styles.connections}>
@@ -480,20 +481,21 @@ function WorkspaceContent() {
             <div className={styles.providerGrid} aria-busy={loading}>
               {providers.map((provider) => {
                 const connection = connections.find((item) => item.provider === provider.id);
+                const invalid = connection?.status === "invalid";
                 const identityOnly = provider.id === "github" && githubIdentity && !connection;
                 const selectedCount = connection
                   ? provider.id === "github"
                     ? getSelectedRepositoryCount(connection)
                     : provider.id === "supabase" || provider.id === "vercel"
-                      ? getSelectedProjectCount(connection)
+                      ? getSelectedServiceCount(connection)
                       : 0
                   : 0;
                 return (
                   <article key={provider.id} className={styles.providerCard}>
                     <div className={styles.providerTop}>
                       <span className={styles.providerMarkLarge}>{provider.mark}</span>
-                      <span className={connection ? styles.statusActive : identityOnly ? styles.statusPartial : styles.statusIdle}>
-                        {connection ? "Active" : identityOnly ? "Identity linked" : "Not connected"}
+                      <span className={connection && !invalid ? styles.statusActive : connection || identityOnly ? styles.statusPartial : styles.statusIdle}>
+                        {invalid ? "Reconnect required" : connection ? "Active" : identityOnly ? "Identity linked" : "Not connected"}
                       </span>
                     </div>
                     <div>
@@ -503,9 +505,9 @@ function WorkspaceContent() {
                     </div>
                     {provider.id === "github" && connection ? (
                       <ConnectionActions
-                        primaryLabel={selectedCount ? `${selectedCount} selected` : "Select repositories"}
+                        primaryLabel={invalid ? "Reconnect to browse" : selectedCount ? `${selectedCount} selected` : "Select repositories"}
                         reconnectLabel="Reconnect"
-                        onPrimary={() => void openRepositoryPicker(connection)}
+                        onPrimary={() => invalid ? void connectProvider(provider.id) : void openRepositoryPicker(connection)}
                         onReconnect={() => void connectProvider(provider.id)}
                       />
                     ) : provider.id === "supabase" && connection ? (
@@ -559,10 +561,12 @@ function WorkspaceContent() {
                 loading={repositoryLoading}
                 saving={repositorySaving}
                 error={repositoryError}
+                errorActionLabel={repositoryErrorCode === "github_reauthentication_required" || repositoryErrorCode === "github_access_forbidden" ? "Reconnect workspace GitHub" : undefined}
                 onSearchChange={setRepositorySearch}
                 onToggle={toggleRepository}
                 onClose={() => setRepositoryConnectionID("")}
                 onSave={() => void saveRepositorySelection()}
+                onErrorAction={() => void connectProvider("github")}
               />
             )}
 
@@ -626,7 +630,7 @@ function WorkspaceContent() {
   );
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
+function Metric({ label, value, detail }: { label: string; value: string; detail: string; }) {
   return (
     <article className={styles.metric}>
       <span>{label}</span>
@@ -645,9 +649,9 @@ function getSelectedRepositoryCount(connection: Connection): number {
   return Array.isArray(repositories) ? repositories.length : 0;
 }
 
-function getSelectedProjectCount(connection: Connection): number {
-  const projects = connection.metadata?.projects;
-  return Array.isArray(projects) ? projects.length : 0;
+function getSelectedServiceCount(connection: Connection): number {
+  const services = connection.metadata?.services ?? connection.metadata?.projects;
+  return Array.isArray(services) ? services.length : 0;
 }
 
 function formatSupabaseStatus(status: string): string {
@@ -683,6 +687,10 @@ function getConnectionNotice(searchParams: Pick<URLSearchParams, "get">): string
       return `${provider} authorisation expired before InfraMap could complete it. Please try again.`;
     case "identity_lookup_failed":
       return `${provider} connected, but its account details could not be loaded.`;
+    case "github_token_rejected":
+      return "GitHub issued a token but rejected it when InfraMap verified repository access. The workspace connection was not replaced.";
+    case "github_repository_access_forbidden":
+      return "GitHub signed in successfully but did not grant repository access. Check organisation approval or SSO, then reconnect this workspace.";
     case "invalid_state":
       return `The ${provider} connection request expired. Please start it again.`;
     default:

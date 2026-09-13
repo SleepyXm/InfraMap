@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	connections "InfraMap/services/connections"
 	"InfraMap/utils"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +30,7 @@ type oauthState struct {
 	UserID       string `json:"user_id,omitempty"`
 	AccountID    string `json:"account_id,omitempty"`
 	CodeVerifier string `json:"code_verifier,omitempty"`
+	ReturnTo     string `json:"return_to,omitempty"`
 }
 type oauthToken struct {
 	AccessToken      string `json:"access_token"`
@@ -123,6 +126,7 @@ func OAuthConnectionStart(db *sql.DB) gin.HandlerFunc {
 			Intent:    "integration",
 			UserID:    userID,
 			AccountID: accountID,
+			ReturnTo:  safeOAuthReturnTo(c.Query("return_to")),
 		}
 		query := url.Values{}
 		if provider != "vercel" {
@@ -155,30 +159,30 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 		if providerError := c.Query("error"); providerError != "" {
 			state, err := consumeOAuthState(c, c.Query("state"))
 			if err != nil {
-				oauthRedirect(c, "", providerError, "login")
+				oauthRedirect(c, "", providerError, "login", "")
 				return
 			}
-			oauthRedirect(c, state.Provider, providerError, state.Intent)
+			oauthRedirect(c, state.Provider, providerError, state.Intent, state.ReturnTo)
 			return
 		}
 		stateValue, code := c.Query("state"), c.Query("code")
 		if stateValue == "" || code == "" {
-			oauthRedirect(c, "", "invalid_callback", "login")
+			oauthRedirect(c, "", "invalid_callback", "login", "")
 			return
 		}
 		state, err := consumeOAuthState(c, stateValue)
 		if err != nil {
-			oauthRedirect(c, "", "invalid_state", "login")
+			oauthRedirect(c, "", "invalid_state", "login", "")
 			return
 		}
 		config, ok := oauthConfig(state.Provider)
 		if !ok {
-			oauthRedirect(c, state.Provider, "unsupported_provider", state.Intent)
+			oauthRedirect(c, state.Provider, "unsupported_provider", state.Intent, state.ReturnTo)
 			return
 		}
 		token, err := exchangeOAuthCode(c, state.Provider, config, code, state.CodeVerifier)
 		if err != nil {
-			oauthRedirect(c, state.Provider, "token_exchange_failed", state.Intent)
+			oauthRedirect(c, state.Provider, "token_exchange_failed", state.Intent, state.ReturnTo)
 			return
 		}
 		if state.Intent == "integration" {
@@ -189,7 +193,7 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 			}
 			if err := connectOAuthIntegration(c, db, state, token, details); err != nil {
 				log.Printf("OAuth integration callback failed for %s: %v", state.Provider, err)
-				oauthRedirect(c, state.Provider, "connection_failed", state.Intent)
+				oauthRedirect(c, state.Provider, integrationOAuthProblem(state.Provider, err), state.Intent, state.ReturnTo)
 				return
 			}
 			if state.Provider == "vercel" {
@@ -198,32 +202,32 @@ func OAuthCallback(db *sql.DB) gin.HandlerFunc {
 					return
 				}
 			}
-			oauthRedirect(c, state.Provider, "", state.Intent)
+			oauthRedirect(c, state.Provider, "", state.Intent, state.ReturnTo)
 			return
 		}
 		identity, err := fetchOAuthIdentity(c, state.Provider, config, token.AccessToken)
 		if err != nil {
-			oauthRedirect(c, state.Provider, "identity_lookup_failed", state.Intent)
+			oauthRedirect(c, state.Provider, "identity_lookup_failed", state.Intent, state.ReturnTo)
 			return
 		}
 		if state.Intent == "connect" {
 			if err := connectOAuthIdentity(c, db, state.UserID, state.Provider, identity); err != nil {
-				oauthRedirect(c, state.Provider, "account_link_failed", state.Intent)
+				oauthRedirect(c, state.Provider, "account_link_failed", state.Intent, state.ReturnTo)
 				return
 			}
-			oauthRedirect(c, state.Provider, "", state.Intent)
+			oauthRedirect(c, state.Provider, "", state.Intent, state.ReturnTo)
 			return
 		}
 		userID, err := findOrCreateOAuthUser(c, db, state.Provider, identity)
 		if err != nil {
-			oauthRedirect(c, state.Provider, "account_link_failed", state.Intent)
+			oauthRedirect(c, state.Provider, "account_link_failed", state.Intent, state.ReturnTo)
 			return
 		}
 		if err := issueOAuthSession(c, userID); err != nil {
-			oauthRedirect(c, state.Provider, "session_failed", state.Intent)
+			oauthRedirect(c, state.Provider, "session_failed", state.Intent, state.ReturnTo)
 			return
 		}
-		oauthRedirect(c, state.Provider, "", state.Intent)
+		oauthRedirect(c, state.Provider, "", state.Intent, state.ReturnTo)
 	}
 }
 
@@ -252,24 +256,37 @@ func connectOAuthIntegration(ctx context.Context, db *sql.DB, state oauthState, 
 		}
 		return connectGitHubIntegration(ctx, db, state, token, identity)
 	case "supabase":
-		return connectSupabaseIntegration(ctx, db, state, token)
+		bundle := utils.OAuthTokenBundle{
+			AccessToken: token.AccessToken, RefreshToken: token.RefreshToken,
+			TokenType: token.TokenType, Scope: token.Scope,
+		}
+		if token.ExpiresIn > 0 {
+			bundle.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+		}
+		return connections.ConnectSupabaseIntegration(ctx, db, state.AccountID, state.UserID, bundle)
 	case "vercel":
-		return connectVercelIntegration(ctx, db, state, token, details)
+		bundle := utils.OAuthTokenBundle{AccessToken: token.AccessToken, TokenType: token.TokenType, Scope: token.Scope}
+		return connections.ConnectVercelIntegration(ctx, db, state.AccountID, state.UserID, bundle, details.TeamID, details.ConfigurationID)
 	default:
 		return fmt.Errorf("unsupported integration provider")
 	}
 }
 
 func connectGitHubIntegration(ctx context.Context, db *sql.DB, state oauthState, token oauthToken, identity oauthIdentity) error {
+	if _, err := connections.FetchGitHubRepositories(ctx, token.AccessToken); err != nil {
+		return fmt.Errorf("verify GitHub repository access: %w", err)
+	}
 
 	encryptedToken, err := utils.Encrypt(token.AccessToken)
 	if err != nil {
 		return err
 	}
 	metadata, err := json.Marshal(map[string]any{
-		"email": identity.Email,
-		"login": identity.Username,
-		"scope": "read:user user:email repo read:org",
+		"email":           identity.Email,
+		"health_status":   "active",
+		"last_error_code": nil,
+		"login":           identity.Username,
+		"scope":           firstValue(token.Scope, "read:user user:email repo read:org"),
 	})
 	if err != nil {
 		return err
@@ -577,12 +594,16 @@ func issueOAuthSession(ctx *gin.Context, userID string) error {
 	utils.SetAuthCookies(ctx, access, refresh)
 	return nil
 }
-func oauthRedirect(c *gin.Context, provider, problem, intent string) {
-	target := utils.Cfg.DevServer + "/login/callback"
-	query := url.Values{}
+func oauthRedirect(c *gin.Context, provider, problem, intent, returnTo string) {
+	target, _ := url.Parse(utils.Cfg.DevServer + "/login/callback")
 	if intent == "integration" {
-		target = utils.Cfg.DevServer + "/workspaces"
-		query.Set("tab", "connections")
+		target, _ = url.Parse(utils.Cfg.DevServer + "/workspaces?tab=connections")
+		if returnTo != "" {
+			target, _ = url.Parse(strings.TrimRight(utils.Cfg.DevServer, "/") + returnTo)
+		}
+	}
+	query := target.Query()
+	if intent == "integration" {
 		query.Set("oauth", "success")
 	}
 	if provider != "" {
@@ -595,10 +616,33 @@ func oauthRedirect(c *gin.Context, provider, problem, intent string) {
 	if intent == "connect" {
 		query.Set("intent", intent)
 	}
-	if len(query) > 0 {
-		target += "?" + query.Encode()
+	target.RawQuery = query.Encode()
+	c.Redirect(http.StatusFound, target.String())
+}
+
+func safeOAuthReturnTo(value string) string {
+	if value == "" || strings.HasPrefix(value, "//") {
+		return ""
 	}
-	c.Redirect(http.StatusFound, target)
+	target, err := url.Parse(value)
+	if err != nil || target.IsAbs() || target.Host != "" || !strings.HasPrefix(target.Path, "/") {
+		return ""
+	}
+	target.Fragment = ""
+	return target.RequestURI()
+}
+
+func integrationOAuthProblem(provider string, err error) string {
+	var githubError *connections.GitHubAPIError
+	if provider == "github" && errors.As(err, &githubError) {
+		if githubError.Status == http.StatusUnauthorized {
+			return "github_token_rejected"
+		}
+		if githubError.Status == http.StatusForbidden {
+			return "github_repository_access_forbidden"
+		}
+	}
+	return "connection_failed"
 }
 func vercelCompletionURL(value string) (string, bool) {
 	if value == "" {

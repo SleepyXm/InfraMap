@@ -20,7 +20,26 @@ const vercelAPIURL = "https://api.vercel.com"
 
 var errVercelConnectionNotFound = errors.New("vercel connection not found")
 
-type VercelProject struct {
+func ConnectVercelIntegration(ctx context.Context, db *sql.DB, accountID, userID string, token utils.OAuthTokenBundle, teamID, configurationID string) error {
+	if configurationID == "" {
+		return fmt.Errorf("vercel callback did not include a configuration id")
+	}
+	accountName := FetchVercelAccountName(ctx, token.AccessToken, teamID)
+	name := "Vercel"
+	if accountName != "" {
+		name += " · " + accountName
+	}
+	return SaveOAuthConnection(ctx, db, OAuthConnection{
+		AccountID: accountID, UserID: userID, Provider: "vercel",
+		Name: name, ExternalID: configurationID, Token: token,
+		Metadata: map[string]any{
+			"configuration_id": configurationID, "team_id": teamID,
+			"account_name": accountName, "scope": token.Scope,
+		},
+	})
+}
+
+type VercelService struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Framework string `json:"framework"`
@@ -45,11 +64,11 @@ type VercelDeployment struct {
 	InspectorURL string                 `json:"inspectorUrl"`
 }
 
-type updateVercelProjectsRequest struct {
-	ProjectIDs []string `json:"project_ids"`
+type updateVercelServicesRequest struct {
+	ServiceIDs []string `json:"service_ids"`
 }
 
-func GetVercelProjects(db *sql.DB) gin.HandlerFunc {
+func GetVercelServices(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("userID").(string)
 		accountID := c.Param("accountID")
@@ -68,19 +87,19 @@ func GetVercelProjects(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not open the Vercel connection"})
 			return
 		}
-		projects, err := FetchVercelProjects(c, token, teamID)
+		services, err := FetchVercelServices(c, token, teamID)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Vercel projects could not be loaded"})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Vercel services could not be loaded"})
 			return
 		}
-		for index := range projects {
-			projects[index].Selected = selected[projects[index].ID]
+		for index := range services {
+			services[index].Selected = selected[services[index].ID]
 		}
-		c.JSON(http.StatusOK, gin.H{"projects": projects})
+		c.JSON(http.StatusOK, gin.H{"services": services})
 	}
 }
 
-func UpdateVercelProjects(db *sql.DB) gin.HandlerFunc {
+func UpdateVercelServices(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("userID").(string)
 		accountID := c.Param("accountID")
@@ -90,13 +109,13 @@ func UpdateVercelProjects(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		var request updateVercelProjectsRequest
+		var request updateVercelServicesRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Choose the Vercel projects to attach"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Choose the Vercel services to attach"})
 			return
 		}
-		if len(request.ProjectIDs) > 500 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many projects selected"})
+		if len(request.ServiceIDs) > 500 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many services selected"})
 			return
 		}
 
@@ -114,95 +133,54 @@ func UpdateVercelProjects(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		projects, err := FetchVercelProjects(c, token, teamID)
+		services, err := FetchVercelServices(c, token, teamID)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Vercel projects could not be verified"})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Vercel services could not be verified"})
 			return
 		}
-		available := make(map[string]VercelProject, len(projects))
-		for _, project := range projects {
-			available[project.ID] = project
-		}
-		selected := make([]VercelProject, 0, len(request.ProjectIDs))
-		seen := make(map[string]bool, len(request.ProjectIDs))
-		for _, projectID := range request.ProjectIDs {
-			project, ok := available[projectID]
-			if !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "A selected Vercel project is no longer accessible"})
-				return
-			}
-			if seen[projectID] {
-				continue
-			}
-			seen[projectID] = true
-			project.Selected = true
-			selected = append(selected, project)
-		}
-
-		payload, err := json.Marshal(selected)
+		selected, err := selectServices(services, request.ServiceIDs)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Vercel project selection"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "A selected Vercel service is no longer accessible"})
 			return
 		}
-		result, err := db.ExecContext(c, `UPDATE connections
-			SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('projects', $1::jsonb),
-				updated_at = NOW()
-			WHERE id = $2 AND account_id = $3 AND provider = 'vercel'`, string(payload), connectionID, accountID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Vercel project selection"})
-			return
-		}
-		rows, err := result.RowsAffected()
-		if err != nil || rows != 1 {
+		err = saveServiceSelection(c, db, accountID, connectionID, "vercel", selected)
+		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Vercel connection not found"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"projects": selected})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Vercel service selection"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"services": selected})
 	}
 }
 
 func LoadVercelConnection(ctx context.Context, db *sql.DB, userID, accountID, connectionID string) (string, string, map[string]bool, string, error) {
-	var encryptedToken string
-	var metadata []byte
-	var role string
-	err := db.QueryRowContext(ctx, `SELECT c.secret_ref, c.metadata, am.role
-		FROM connections c
-		JOIN account_memberships am ON am.account_id = c.account_id
-		WHERE c.id = $1 AND c.account_id = $2 AND c.provider = 'vercel' AND am.user_id = $3`,
-		connectionID, accountID, userID).Scan(&encryptedToken, &metadata, &role)
-	if err == sql.ErrNoRows {
+	bundle, metadata, role, err := loadProviderConnection(ctx, db, userID, accountID, connectionID, "vercel")
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", nil, "", errVercelConnectionNotFound
 	}
 	if err != nil {
 		return "", "", nil, "", err
 	}
-	decrypted, err := utils.Decrypt(encryptedToken)
-	if err != nil {
-		return "", "", nil, "", err
-	}
-	var bundle utils.OAuthTokenBundle
-	if err := json.Unmarshal([]byte(decrypted), &bundle); err != nil {
-		return "", "", nil, "", err
-	}
 	var stored struct {
-		TeamID   string          `json:"team_id"`
-		Projects []VercelProject `json:"projects"`
+		TeamID string `json:"team_id"`
 	}
 	if len(metadata) > 0 {
 		if err := json.Unmarshal(metadata, &stored); err != nil {
 			return "", "", nil, "", err
 		}
 	}
-	selected := make(map[string]bool, len(stored.Projects))
-	for _, project := range stored.Projects {
-		selected[project.ID] = true
+	selected, err := selectedServiceIDs[VercelService](metadata)
+	if err != nil {
+		return "", "", nil, "", err
 	}
 	return bundle.AccessToken, stored.TeamID, selected, role, nil
 }
 
-func FetchVercelProjects(ctx context.Context, accessToken, teamID string) ([]VercelProject, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-	projects := make([]VercelProject, 0)
+func FetchVercelServices(ctx context.Context, accessToken, teamID string) ([]VercelService, error) {
+	services := make([]VercelService, 0)
 	var until int64
 	for page := 0; page < 10; page++ {
 		query := url.Values{"limit": {"100"}}
@@ -212,38 +190,25 @@ func FetchVercelProjects(ctx context.Context, accessToken, teamID string) ([]Ver
 		if until > 0 {
 			query.Set("until", strconv.FormatInt(until, 10))
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, vercelAPIURL+"/v9/projects?"+query.Encode(), nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-		req.Header.Set("Accept", "application/json")
-		response, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if response.StatusCode >= 300 {
-			response.Body.Close()
-			return nil, fmt.Errorf("vercel projects returned status %d", response.StatusCode)
-		}
 		var result struct {
-			Projects   []VercelProject `json:"projects"`
+			Projects   []VercelService `json:"projects"`
 			Pagination struct {
 				Next *int64 `json:"next"`
 			} `json:"pagination"`
 		}
-		decodeErr := json.NewDecoder(response.Body).Decode(&result)
-		response.Body.Close()
-		if decodeErr != nil {
-			return nil, decodeErr
+		if err := providerRequest(ctx, http.MethodGet, vercelAPIURL+"/v9/projects?"+query.Encode(), accessToken, nil, &result, 15*time.Second); err != nil {
+			return nil, err
 		}
-		projects = append(projects, result.Projects...)
+		if result.Projects == nil {
+			return nil, fmt.Errorf("vercel returned an invalid project list")
+		}
+		services = append(services, result.Projects...)
 		if result.Pagination.Next == nil || *result.Pagination.Next == 0 {
-			break
+			return services, nil
 		}
 		until = *result.Pagination.Next
 	}
-	return projects, nil
+	return nil, fmt.Errorf("vercel service pagination limit reached")
 }
 
 func FetchVercelDeployments(ctx context.Context, accessToken, teamID, projectID string) ([]VercelDeployment, error) {
@@ -251,25 +216,41 @@ func FetchVercelDeployments(ctx context.Context, accessToken, teamID, projectID 
 	if teamID != "" {
 		query.Set("teamId", teamID)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, vercelAPIURL+"/v6/deployments?"+query.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		return nil, fmt.Errorf("vercel deployments returned status %d", response.StatusCode)
-	}
 	var result struct {
 		Deployments []VercelDeployment `json:"deployments"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, err
+	err := providerRequest(ctx, http.MethodGet, vercelAPIURL+"/v6/deployments?"+query.Encode(), accessToken, nil, &result, 15*time.Second)
+	return result.Deployments, err
+}
+
+func (service VercelService) serviceID() string { return service.ID }
+
+func (service VercelService) withSelection() VercelService {
+	service.Selected = true
+	return service
+}
+
+func FetchVercelAccountName(ctx context.Context, accessToken, teamID string) string {
+	endpoint := vercelAPIURL + "/v2/user"
+	if teamID != "" {
+		endpoint = vercelAPIURL + "/v2/teams/" + url.PathEscape(teamID)
 	}
-	return result.Deployments, nil
+	type account struct{ Name, Username, Slug string }
+	var result struct {
+		account
+		User *account `json:"user"`
+	}
+	if err := providerRequest(ctx, http.MethodGet, endpoint, accessToken, nil, &result, 10*time.Second); err != nil {
+		return ""
+	}
+	if result.User != nil {
+		if result.User.Name != "" {
+			return result.User.Name
+		}
+		return result.User.Username
+	}
+	if result.Name != "" {
+		return result.Name
+	}
+	return result.Slug
 }

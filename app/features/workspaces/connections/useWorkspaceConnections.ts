@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getWorkspaceConnections } from "./api";
-import type { Connection } from "@/app/components/types/users";
+import { getWorkspaceConnections } from "@/app/components/handlers/connections";
+import type { Connection } from "@/app/components/types/connections";
 
 export function useWorkspaceConnections(accountID?: string) {
   const [connections, setConnections] = useState<Connection[]>([]);

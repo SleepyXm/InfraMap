@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -21,7 +20,24 @@ const supabaseManagementAPI = "https://api.supabase.com"
 
 var errSupabaseConnectionNotFound = errors.New("supabase connection not found")
 
-type SupabaseProject struct {
+func ConnectSupabaseIntegration(ctx context.Context, db *sql.DB, accountID, userID string, token utils.OAuthTokenBundle) error {
+	organizations, err := FetchSupabaseOrganizations(ctx, token.AccessToken)
+	if err != nil {
+		return err
+	}
+	if len(organizations) == 0 {
+		return fmt.Errorf("supabase returned no authorised organization")
+	}
+	organization := organizations[0]
+	return SaveOAuthConnection(ctx, db, OAuthConnection{
+		AccountID: accountID, UserID: userID, Provider: "supabase",
+		Name: "Supabase · " + organization.Name, ExternalID: organization.ID,
+		Token:    token,
+		Metadata: map[string]any{"organization": organization, "organizations": organizations, "scope": token.Scope},
+	})
+}
+
+type SupabaseService struct {
 	ID               string                   `json:"id"`
 	Ref              string                   `json:"ref"`
 	OrganizationID   string                   `json:"organization_id"`
@@ -30,11 +46,11 @@ type SupabaseProject struct {
 	Region           string                   `json:"region"`
 	CreatedAt        string                   `json:"created_at"`
 	Status           string                   `json:"status"`
-	Database         *SupabaseProjectDatabase `json:"database,omitempty"`
+	Database         *SupabaseServiceDatabase `json:"database,omitempty"`
 	Selected         bool                     `json:"selected"`
 }
 
-type SupabaseProjectDatabase struct {
+type SupabaseServiceDatabase struct {
 	Host           string `json:"host"`
 	Version        string `json:"version"`
 	PostgresEngine string `json:"postgres_engine"`
@@ -68,18 +84,18 @@ type SupabaseRegionSelection struct {
 	Code string `json:"code"`
 }
 
-type CreateSupabaseProjectInput struct {
+type CreateSupabaseServiceInput struct {
 	DatabasePassword string                  `json:"db_pass"`
 	Name             string                  `json:"name"`
 	OrganizationSlug string                  `json:"organization_slug"`
 	RegionSelection  SupabaseRegionSelection `json:"region_selection"`
 }
 
-type updateSupabaseProjectsRequest struct {
-	ProjectRefs []string `json:"project_refs"`
+type updateSupabaseServicesRequest struct {
+	ServiceRefs []string `json:"service_refs"`
 }
 
-func GetSupabaseProjects(db *sql.DB) gin.HandlerFunc {
+func GetSupabaseServices(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("userID").(string)
 		accountID := c.Param("accountID")
@@ -100,19 +116,19 @@ func GetSupabaseProjects(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		projects, err := FetchSupabaseProjects(c, token)
+		services, err := FetchSupabaseServices(c, token)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Supabase projects could not be loaded"})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Supabase services could not be loaded"})
 			return
 		}
-		for index := range projects {
-			projects[index].Selected = selected[projects[index].Ref]
+		for index := range services {
+			services[index].Selected = selected[services[index].Ref]
 		}
-		c.JSON(http.StatusOK, gin.H{"projects": projects})
+		c.JSON(http.StatusOK, gin.H{"services": services})
 	}
 }
 
-func UpdateSupabaseProjects(db *sql.DB) gin.HandlerFunc {
+func UpdateSupabaseServices(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.MustGet("userID").(string)
 		accountID := c.Param("accountID")
@@ -123,13 +139,13 @@ func UpdateSupabaseProjects(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		var request updateSupabaseProjectsRequest
+		var request updateSupabaseServicesRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Choose the Supabase projects to attach"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Choose the Supabase services to attach"})
 			return
 		}
-		if len(request.ProjectRefs) > 500 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many projects selected"})
+		if len(request.ServiceRefs) > 500 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Too many services selected"})
 			return
 		}
 
@@ -147,84 +163,35 @@ func UpdateSupabaseProjects(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		projects, err := FetchSupabaseProjects(c, token)
+		services, err := FetchSupabaseServices(c, token)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Supabase projects could not be verified"})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Supabase services could not be verified"})
 			return
 		}
-		available := make(map[string]SupabaseProject, len(projects))
-		for _, project := range projects {
-			available[project.Ref] = project
-		}
-
-		selected := make([]SupabaseProject, 0, len(request.ProjectRefs))
-		seen := make(map[string]bool, len(request.ProjectRefs))
-		for _, projectRef := range request.ProjectRefs {
-			project, ok := available[projectRef]
-			if !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "A selected Supabase project is no longer accessible"})
-				return
-			}
-			if seen[projectRef] {
-				continue
-			}
-			seen[projectRef] = true
-			project.Selected = true
-			selected = append(selected, project)
-		}
-
-		payload, err := json.Marshal(selected)
+		selected, err := selectServices(services, request.ServiceRefs)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Supabase project selection"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "A selected Supabase service is no longer accessible"})
 			return
 		}
-		result, err := db.ExecContext(c, `UPDATE connections
-			SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('projects', $1::jsonb),
-				updated_at = NOW()
-			WHERE id = $2 AND account_id = $3 AND provider = 'supabase'`, string(payload), connectionID, accountID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Supabase project selection"})
-			return
-		}
-		rows, err := result.RowsAffected()
-		if err != nil || rows != 1 {
+		err = saveServiceSelection(c, db, accountID, connectionID, "supabase", selected)
+		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Supabase connection not found"})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"projects": selected})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save Supabase service selection"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"services": selected})
 	}
 }
 
-func LoadSupabaseConnection(
-	ctx context.Context,
-	db *sql.DB,
-	userID string,
-	accountID string,
-	connectionID string,
-) (string, map[string]bool, string, error) {
-	var encryptedToken string
-	var metadata []byte
-	var role string
-
-	err := db.QueryRowContext(ctx, `SELECT c.secret_ref, c.metadata, am.role
-		FROM connections c
-		JOIN account_memberships am ON am.account_id = c.account_id
-		WHERE c.id = $1 AND c.account_id = $2 AND c.provider = 'supabase' AND am.user_id = $3`,
-		connectionID, accountID, userID).Scan(&encryptedToken, &metadata, &role)
-	if err == sql.ErrNoRows {
+func LoadSupabaseConnection(ctx context.Context, db *sql.DB, userID, accountID, connectionID string) (string, map[string]bool, string, error) {
+	bundle, metadata, role, err := loadProviderConnection(ctx, db, userID, accountID, connectionID, "supabase")
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil, "", errSupabaseConnectionNotFound
 	}
 	if err != nil {
-		return "", nil, "", err
-	}
-
-	decrypted, err := utils.Decrypt(encryptedToken)
-	if err != nil {
-		return "", nil, "", err
-	}
-	var bundle utils.OAuthTokenBundle
-	if err := json.Unmarshal([]byte(decrypted), &bundle); err != nil {
 		return "", nil, "", err
 	}
 	if !bundle.ExpiresAt.IsZero() && time.Now().Add(time.Minute).After(bundle.ExpiresAt) {
@@ -236,79 +203,25 @@ func LoadSupabaseConnection(
 			return "", nil, "", err
 		}
 	}
-
-	var stored struct {
-		Projects []SupabaseProject `json:"projects"`
-	}
-	if len(metadata) > 0 {
-		if err := json.Unmarshal(metadata, &stored); err != nil {
-			return "", nil, "", err
-		}
-	}
-	selected := make(map[string]bool, len(stored.Projects))
-	for _, project := range stored.Projects {
-		selected[project.Ref] = true
+	selected, err := selectedServiceIDs[SupabaseService](metadata)
+	if err != nil {
+		return "", nil, "", err
 	}
 	return bundle.AccessToken, selected, role, nil
 }
 
-func FetchSupabaseProjects(ctx context.Context, accessToken string) ([]SupabaseProject, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, supabaseManagementAPI+"/v1/projects", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		return nil, fmt.Errorf("supabase projects returned status %d", response.StatusCode)
-	}
-
-	var projects []SupabaseProject
-	if err := json.NewDecoder(response.Body).Decode(&projects); err != nil {
-		return nil, err
-	}
-	return projects, nil
+func FetchSupabaseServices(ctx context.Context, accessToken string) ([]SupabaseService, error) {
+	var services []SupabaseService
+	err := providerRequest(ctx, http.MethodGet, supabaseManagementAPI+"/v1/projects", accessToken, nil, &services, 15*time.Second)
+	return services, err
 }
 
-func FetchSupabaseProjectHealth(ctx context.Context, accessToken, projectRef string) ([]SupabaseServiceHealth, error) {
+func FetchSupabaseServiceHealth(ctx context.Context, accessToken, projectRef string) ([]SupabaseServiceHealth, error) {
 	query := url.Values{"services": {"auth,db,realtime,rest,storage"}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, supabaseManagementAPI+"/v1/projects/"+url.PathEscape(projectRef)+"/health?"+query.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		var failure struct {
-			Message string `json:"message"`
-			Error   string `json:"error"`
-		}
-		_ = json.NewDecoder(response.Body).Decode(&failure)
-		message := failure.Message
-		if message == "" {
-			message = failure.Error
-		}
-		if message == "" {
-			message = fmt.Sprintf("status %d", response.StatusCode)
-		}
-		return nil, fmt.Errorf("supabase health returned %s", message)
-	}
+	endpoint := supabaseManagementAPI + "/v1/projects/" + url.PathEscape(projectRef) + "/health?" + query.Encode()
 	var services []SupabaseServiceHealth
-	if err := json.NewDecoder(response.Body).Decode(&services); err != nil {
-		return nil, err
-	}
-	return services, nil
+	err := providerRequest(ctx, http.MethodGet, endpoint, accessToken, nil, &services, 15*time.Second)
+	return services, err
 }
 
 func FetchSupabaseRequestActivity(ctx context.Context, accessToken, projectRef string) ([]SupabaseUsagePoint, error) {
@@ -328,20 +241,6 @@ GROUP BY timestamp
 ORDER BY timestamp ASC`},
 	}
 	endpoint := supabaseManagementAPI + "/v1/projects/" + url.PathEscape(projectRef) + "/analytics/endpoints/logs?" + query.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		return nil, fmt.Errorf("supabase analytics returned status %d", response.StatusCode)
-	}
 	var result struct {
 		Result []struct {
 			Timestamp             string          `json:"timestamp"`
@@ -352,7 +251,7 @@ ORDER BY timestamp ASC`},
 		} `json:"result"`
 		Error json.RawMessage `json:"error"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := providerRequest(ctx, http.MethodGet, endpoint, accessToken, nil, &result, 15*time.Second); err != nil {
 		return nil, err
 	}
 	if len(result.Error) > 0 && string(result.Error) != "null" && string(result.Error) != `""` {
@@ -379,68 +278,15 @@ func analyticsCount(value json.RawMessage) int64 {
 }
 
 func FetchSupabaseOrganizations(ctx context.Context, accessToken string) ([]SupabaseOrganization, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, supabaseManagementAPI+"/v1/organizations", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		return nil, fmt.Errorf("supabase organizations returned status %d", response.StatusCode)
-	}
-
 	var organizations []SupabaseOrganization
-	if err := json.NewDecoder(response.Body).Decode(&organizations); err != nil {
-		return nil, err
-	}
-	return organizations, nil
+	err := providerRequest(ctx, http.MethodGet, supabaseManagementAPI+"/v1/organizations", accessToken, nil, &organizations, 15*time.Second)
+	return organizations, err
 }
 
-func CreateSupabaseProject(ctx context.Context, accessToken string, input CreateSupabaseProjectInput) (SupabaseProject, error) {
-	payload, err := json.Marshal(input)
-	if err != nil {
-		return SupabaseProject{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, supabaseManagementAPI+"/v1/projects", bytes.NewReader(payload))
-	if err != nil {
-		return SupabaseProject{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return SupabaseProject{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 {
-		var failure struct {
-			Message string `json:"message"`
-			Error   string `json:"error"`
-		}
-		_ = json.NewDecoder(response.Body).Decode(&failure)
-		message := failure.Message
-		if message == "" {
-			message = failure.Error
-		}
-		if message == "" {
-			message = fmt.Sprintf("Supabase returned status %d", response.StatusCode)
-		}
-		return SupabaseProject{}, errors.New(message)
-	}
-
-	var project SupabaseProject
-	if err := json.NewDecoder(response.Body).Decode(&project); err != nil {
-		return SupabaseProject{}, err
-	}
-	return project, nil
+func CreateSupabaseService(ctx context.Context, accessToken string, input CreateSupabaseServiceInput) (SupabaseService, error) {
+	var service SupabaseService
+	err := providerRequest(ctx, http.MethodPost, supabaseManagementAPI+"/v1/projects", accessToken, input, &service, 30*time.Second)
+	return service, err
 }
 
 func refreshSupabaseToken(ctx context.Context, current utils.OAuthTokenBundle) (utils.OAuthTokenBundle, error) {
@@ -493,14 +339,17 @@ func refreshSupabaseToken(ctx context.Context, current utils.OAuthTokenBundle) (
 }
 
 func saveSupabaseToken(ctx context.Context, db *sql.DB, connectionID string, bundle utils.OAuthTokenBundle) error {
-	payload, err := json.Marshal(bundle)
+	encrypted, err := encryptOAuthToken(bundle)
 	if err != nil {
 		return err
 	}
-	encrypted, err := utils.Encrypt(string(payload))
-	if err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, `UPDATE connections SET secret_ref = $1, updated_at = NOW() WHERE id = $2`, encrypted, connectionID)
+	_, err = db.ExecContext(ctx, `UPDATE connections SET secret_ref = $1, updated_at = NOW() WHERE id = $2 AND provider = 'supabase'`, encrypted, connectionID)
 	return err
+}
+
+func (service SupabaseService) serviceID() string { return service.Ref }
+
+func (service SupabaseService) withSelection() SupabaseService {
+	service.Selected = true
+	return service
 }

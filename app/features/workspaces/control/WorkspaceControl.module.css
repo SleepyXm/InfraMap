@@ -1,0 +1,32 @@
+.page, .state { min-height: 100vh; color: var(--foreground); }
+.page { padding: 6.5rem 0 4rem; }
+.shell { width: min(1320px, calc(100% - 2.5rem)); margin: 0 auto; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface-raised) 94%, transparent); box-shadow: var(--shadow-low); backdrop-filter: blur(22px); }
+.headerMeta, .controlHeader { display: flex; align-items: center; }
+.backLink { display: inline-flex; margin-bottom: 0.65rem; color: var(--text-muted); font-size: 0.68rem; font-weight: 650; text-decoration: none; }
+.backLink:hover { color: var(--brand-deep); }
+.stateMark { display: grid; width: 2.7rem; height: 2.7rem; place-items: center; background: var(--foreground); color: var(--background); font-size: 0.75rem; font-weight: 800; }
+.headerMeta { gap: 0.45rem; }
+.headerMeta span { border: 1px solid var(--border); padding: 0.35rem 0.55rem; color: var(--text-muted); font-size: 0.72rem; text-transform: capitalize; }
+.headerMeta .operational { border-color: color-mix(in srgb, #19a858 40%, var(--border)); color: #168148; }
+.headerMeta .attention { border-color: color-mix(in srgb, var(--brand) 55%, var(--border)); color: var(--brand-deep); }
+.controlHeader { justify-content: space-between; gap: 2rem; min-height: 8.5rem; padding: 1rem 1.25rem; background: linear-gradient(100deg, color-mix(in srgb, var(--brand-soft) 32%, var(--surface-raised)), var(--surface-raised) 45%); }
+.eyebrow { margin: 0 0 0.4rem; color: var(--brand-deep); font-size: 0.68rem; font-weight: 750; letter-spacing: 0.11em; text-transform: uppercase; }
+.controlHeader h1 { margin: 0; font-size: clamp(1.8rem, 3.5vw, 3rem); font-weight: 620; letter-spacing: -0.065em; line-height: 1; }
+.controlHeader p:last-child { max-width: 650px; margin: 0.45rem 0 0; color: var(--text-muted); font-size: 0.75rem; line-height: 1.45; }
+.controlMeta { display: grid; min-width: 200px; justify-items: end; gap: 0.18rem; }
+.controlMeta .headerMeta { margin-bottom: 0.45rem; }
+.controlMeta span, .controlMeta small { color: var(--text-muted); font-size: 0.62rem; }
+.controlMeta strong { font-family: var(--font-geist-mono), monospace; font-size: 0.7rem; font-weight: 650; }
+.tabs { display: flex; gap: 0.25rem; overflow-x: auto; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border-strong); background: var(--surface-muted); padding: 0.4rem 1rem 0; }
+.tabs button { position: relative; border: 1px solid transparent; border-bottom: 0; background: transparent; padding: 0.75rem 1rem 0.8rem; color: var(--text-muted); font: inherit; font-size: 0.72rem; font-weight: 680; text-transform: capitalize; cursor: pointer; }
+.tabs button:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); color: var(--foreground); }
+.tabs button::after { position: absolute; right: 0.9rem; bottom: 0.25rem; left: 0.9rem; height: 2px; background: transparent; content: ""; }
+.tabs .tabActive { border-color: var(--border-strong); background: var(--surface-raised); color: var(--brand-deep); }
+.tabs .tabActive::after { background: var(--brand); }
+.resourcesView { display: grid; gap: 0; background: color-mix(in srgb, var(--background) 68%, var(--surface)); padding: 1rem; }
+.state { display: grid; place-items: center; padding: 7rem 1.5rem 3rem; text-align: center; }
+.state > div { display: grid; max-width: 480px; justify-items: center; gap: 1rem; }
+.state h1, .state p { margin: 0; }
+.state p { color: var(--text-muted); }
+.state button { border: 1px solid var(--brand); border-radius: 0; background: var(--brand); padding: 0.75rem 0.9rem; color: #281507; font: inherit; font-weight: 680; cursor: pointer; }
+@media (max-width: 620px) { .page { padding-top: 6.25rem; } .shell { width: calc(100% - 1rem); } .controlHeader { align-items: stretch; flex-direction: column; } .controlMeta { justify-items: start; } .tabs { padding: 0; } }

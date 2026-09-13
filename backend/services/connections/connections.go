@@ -83,7 +83,7 @@ func GetConnections(db *sql.DB) gin.HandlerFunc {
 				}
 			}
 			connection.Category = connectionCategory(connection.Provider)
-			connection.Status = structs.ConnectionStatusActive
+			connection.Status = connectionStatus(connection.Metadata)
 
 			connections = append(connections, connection)
 		}
@@ -168,7 +168,7 @@ func GetConnection(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 		connection.Category = connectionCategory(connection.Provider)
-		connection.Status = structs.ConnectionStatusActive
+		connection.Status = connectionStatus(connection.Metadata)
 
 		c.JSON(http.StatusOK, gin.H{
 			"connection": connection,
@@ -285,6 +285,16 @@ func connectionCategory(provider string) structs.ConnectionCategory {
 		return structs.ConnectionCategoryServer
 	default:
 		return structs.ConnectionCategoryAccount
+	}
+}
+
+func connectionStatus(metadata map[string]any) structs.ConnectionStatus {
+	status, _ := metadata["health_status"].(string)
+	switch structs.ConnectionStatus(status) {
+	case structs.ConnectionStatusPending, structs.ConnectionStatusInvalid, structs.ConnectionStatusDisabled:
+		return structs.ConnectionStatus(status)
+	default:
+		return structs.ConnectionStatusActive
 	}
 }
 

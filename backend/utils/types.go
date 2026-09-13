@@ -42,6 +42,8 @@ type Config struct {
 	SupabaseOAuth            OAuthProviderConfig
 	VercelOAuth              OAuthProviderConfig
 	AWSOAuth                 OAuthProviderConfig
+	AWSControlPrincipalARN   string
+	AWSControlSourceCIDR     string
 }
 
 type Claims struct {

@@ -22,10 +22,12 @@ type ResourceSelectorProps<Key extends ResourceKey> = {
   loading: boolean;
   saving: boolean;
   error: string;
+  errorActionLabel?: string;
   onSearchChange: (value: string) => void;
   onToggle: (id: Key) => void;
   onClose: () => void;
   onSave: () => void;
+  onErrorAction?: () => void;
 };
 
 export function ResourceSelector<Key extends ResourceKey>({
@@ -41,10 +43,12 @@ export function ResourceSelector<Key extends ResourceKey>({
   loading,
   saving,
   error,
+  errorActionLabel,
   onSearchChange,
   onToggle,
   onClose,
   onSave,
+  onErrorAction,
 }: ResourceSelectorProps<Key>) {
   return (
     <section className={styles.repositoryPanel}>
@@ -73,7 +77,7 @@ export function ResourceSelector<Key extends ResourceKey>({
       {loading ? (
         <p className={styles.repositoryState}>Loading available resources…</p>
       ) : error ? (
-        <p className={styles.error}>{error}</p>
+        <div className={styles.selectorError} role="alert"><p>{error}</p>{errorActionLabel && onErrorAction && <button type="button" onClick={onErrorAction}>{errorActionLabel}</button>}</div>
       ) : options.length === 0 ? (
         <p className={styles.repositoryState}>{emptyMessage}</p>
       ) : (
